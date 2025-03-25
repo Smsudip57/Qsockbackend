@@ -3,7 +3,8 @@ const mongoose = require('mongoose');
 const transactionsSchema = new mongoose.Schema({
     OrderID: {
         type: String,
-        required: true
+        required: true,
+        unique: true
     },
     Amount: {
         type: Number,

@@ -24,9 +24,9 @@ router.post("/payment", userAuth, async (req, res) => {
     }
 
     const additionalData = JSON.stringify({
-        userId: req.user._id,
-        secretpassword,
-    })
+      userId: req.user._id,
+      secretpassword,
+    });
     const paymentData = {
       amount: parseFloat(amount).toFixed(2),
       currency: "USDT",
@@ -34,9 +34,9 @@ router.post("/payment", userAuth, async (req, res) => {
       to_currency: "USDT",
       lifetime: 600,
       additional_data: additionalData,
-      url_success: `https://qsocks.net/payment/status${orderid}`,
-      url_failure: `https://qsocks.net/payment/status${orderid}`,
-      url_callback: `https://api.qsocks.net/payment/status`,
+      url_success: `${process.env.Client_Url}/payment/status/${orderid}`,
+      url_failure: `${process.env.Client_Url}/payment/status/${orderid}`,
+      url_callback: `${process.env.Current_Url}/payment/status`,
     };
 
     const jsonString = JSON.stringify(paymentData);
@@ -118,16 +118,23 @@ router.post("/payment/status", async (req, res) => {
       });
     }
 
-    // Update transaction status in your database
-    const transaction = new Transactions({
-      OrderID: order_id,
-      Amount: amount,
-      userId: additionalData?.userId,
-    });
-    await transaction.save();
+    if (["paid", "paid_over", "wrong_amount"].includes(status)) {
+      let transaction = await Transactions.findOne({ OrderID: order_id });
+      if (!transaction) {
+        transaction = new Transactions({
+          OrderID: order_id,
+          Amount: amount,
+          userId: additionalData?.userId,
+        });
+        await transaction.save();
+      } else {
+       return  res.status(200).json({
+          success: true,
+          message: "Webhook processed successfully",
+        });
+      }
 
-    // If payment is successful, update user balance
-    if (["paid","paid_over", 'wrong_amount'].includes(status)) {
+      // If payment is successful, update user balance
       const user = await User.findById(transaction.userId);
       if (user) {
         user.balance = (parseFloat(user.balance) || 0) + parseFloat(amount);

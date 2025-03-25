@@ -24,7 +24,7 @@ const io = setupSocket(server);
 
 // Connect to MongoDB
 app.use(cors({
-    origin: ['http://localhost:3000', process.env.Client_Url],
+    origin: ['http://localhost:3000',"https://qsocks.net", process.env.Client_Url],
     credentials: true
 }))
 app.use(express.static('public'));
