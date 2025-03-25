@@ -16,7 +16,7 @@ router.get("/proxy_history", async (req, res) => {
       });
     }
     const history =
-       user?.role === "admin"
+      user?.role === "admin"
         ? await History.find().sort({ createdAt: -1 })
         : await History.find({ user: user._id }).sort({ createdAt: -1 });
 
@@ -50,9 +50,11 @@ router.get("/residential_location", async (req, res) => {
     res.status(200).json({
       success: true,
       locations: locations?.data,
+      // locations: [],
     });
   } catch (error) {
-    console.error("Error getting residential locations:", error);
+    console.log(error);
+    // console.error("Error getting residential locations:", error);
     return res.status(500).json({
       success: false,
       message: "An error occurred while getting residential locations",
@@ -246,34 +248,53 @@ router.get("/server_credentials", async (req, res) => {
         message: "Type is required",
       });
     }
-    const url = "https://api.digiproxy.cc/reseller/products/servers/available";
+    const url = "https://api.proxy-cheap.com/order/configuration";
 
-    const response = await axios.get(url, {
-      headers: {
-        Authorization: `Bearer ${process.env.Key}`,
-        "Content-Type": "application/json",
+    const response = await axios.post(
+      url,
+      {
+        networkType: "RESIDENTIAL_STATIC",
+        ipVersion: "IPv4",
+        country: "US",
+        region: "NY",
+        isp: "",
+        proxyProtocol: "SOCKS5",
+        authenticationType: "USERNAME_PASSWORD",
+        package: "",
+        quantity: 0,
+        couponCode: "",
+        bandwidth: 0,
+        isAutoExtendEnabled: true,
+        autoExtendBandwidth: 0,
       },
-    });
-    if (response?.data?.error) {
-      return res.status(400).json({
-        success: false,
-        message: "Something went wrong",
-      });
-    }
-    const targetCredentials = response?.data?.find(
-      (cred) => cred?.name === type
+      {
+        headers: {
+          "X-Api-Key": process.env.Proxy_cheap_key,
+          "X-Api-Secret": process.env.Proxy_cheap_secret,
+          "Content-Type": "application/json",
+        },
+      }
     );
+    // if (response?.data?) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "Something went wrong",
+    //   });
+    // }
+    // const targetCredentials = response?.data?.find(
+    //   (cred) => cred?.name === type
+    // );
 
-    if (!targetCredentials) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid type",
-      });
-    }
+    // if (!targetCredentials) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "Invalid type",
+    //   });
+    // }
 
     return res.status(200).json({
       success: true,
-      data: targetCredentials?.locations,
+      data: response?.data,
     });
   } catch (error) {
     console.log(error);
@@ -383,13 +404,19 @@ router.post("/get_proxy", async (req, res) => {
           message: "Error! Please try again",
         });
       }
-    }else if(["Static Residential Proxies", "Datacenter Proxies", "Datacenter IPv6 Proxies"].includes(type)){
-      if(!location || !plan || !quantity || isNaN(quantity)){
+    } else if (
+      [
+        "Static Residential Proxies",
+        "Datacenter Proxies",
+        "Datacenter IPv6 Proxies",
+      ].includes(type)
+    ) {
+      if (!location || !plan || !quantity || isNaN(quantity)) {
         return res.status(400).json({
           success: false,
           message: "Please provide all the required fields",
-      })
-    }
+        });
+      }
       const mainPlan = await Plan.findOne({
         name: type,
       });
@@ -406,7 +433,7 @@ router.post("/get_proxy", async (req, res) => {
           message: "Invalid plan",
         });
       }
-      const price = targetPlan.price*quantity;
+      const price = targetPlan.price * quantity;
       if (user?.balance < price) {
         return res.status(400).json({
           success: false,
@@ -470,7 +497,7 @@ router.post("/get_proxy", async (req, res) => {
             message: "Something went wrong",
           });
         }
-      }catch (error) {
+      } catch (error) {
         return res.status(400).json({
           success: false,
           message: "Error! Please try again",

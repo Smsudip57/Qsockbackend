@@ -3,7 +3,8 @@ dotenv.config();
 const express = require('express');
 const dbConnect = require('./dbConnect/dbConnect'); // Import the database connection
 const auth = require('./routes/auth'); 
-const chat = require('./routes/chatSession');
+// const chat = require('./routes/chatSession');
+const payment = require('./routes/payment');
 const user = require('./routes/user');
 const admin = require('./routes/admin');
 const {adminAuth, userAuth} = require('./middlewares/Auth');
@@ -45,9 +46,10 @@ app.use(express.json());
 
 
 app.use('/api', auth);
-app.use('/api/chat', chat);
+// app.use('/api/chat', chat);
 app.use('/api/user', userAuth, user);
 app.use('/api/admin',adminAuth, admin);
+app.use('/api',  payment);
 
 
 

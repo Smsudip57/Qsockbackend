@@ -1,6 +1,6 @@
 const socketio = require('socket.io');
-const Session = require('../models/session'); // Update path based on your folder structure
-const session = require('../models/session');
+// const Session = require('../models/session'); // Update path based on your folder structure
+// const session = require('../models/session');
 
 const setupSocket = (server) => {
     const io = socketio(server, {
