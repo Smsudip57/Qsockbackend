@@ -9,15 +9,13 @@ router.get("/proxy_history", async (req, res) => {
   try {
     const user = req?.user;
     const { type } = req.query;
-    if (!user?.role === "admin" && !type) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid request",
-      });
-    }
     const history =
       user?.role === "admin"
         ? await History.find().sort({ createdAt: -1 })
+        : type
+        ? await History.find({ user: user._id, type: type }).sort({
+            createdAt: -1,
+          })
         : await History.find({ user: user._id }).sort({ createdAt: -1 });
 
     const filteredHistory = history.filter((entry) =>
@@ -146,7 +144,8 @@ router.post("/generate_budget", async (req, res) => {
   try {
     const user = req?.user;
     if (user?.BudgetResidentialCredentials?.availableTraffic > 0) {
-      const { country, state, city, quantity, rotation, port } = req.body;
+      const { country, state, lifetime, city, quantity, rotation, port } =
+        req.body;
       const location = `${country}${city}`;
       try {
         const response = await axios.post(
@@ -154,7 +153,7 @@ router.post("/generate_budget", async (req, res) => {
           {
             port: port,
             location: location,
-            lifetime: 1440,
+            lifetime: rotation === "random" ? lifetime : 14400,
             count: quantity,
             rotation: rotation,
             subuser: user?.BudgetResidentialCredentials?.id,
@@ -201,9 +200,11 @@ router.post("/generate_budget", async (req, res) => {
 router.get("/plan", async (req, res) => {
   try {
     const { type } = req.query;
-    const plan = await Plan.findOne({
-      name: type,
-    });
+    const plan = type
+      ? await Plan.findOne({
+          name: type,
+        })
+      : await Plan.find();
     return res.status(200).json({
       success: true,
       plan,
@@ -255,17 +256,8 @@ router.get("/server_credentials", async (req, res) => {
       {
         networkType: "RESIDENTIAL_STATIC",
         ipVersion: "IPv4",
-        country: "US",
-        region: "NY",
-        isp: "",
         proxyProtocol: "SOCKS5",
         authenticationType: "USERNAME_PASSWORD",
-        package: "",
-        quantity: 0,
-        couponCode: "",
-        bandwidth: 0,
-        isAutoExtendEnabled: true,
-        autoExtendBandwidth: 0,
       },
       {
         headers: {
@@ -275,23 +267,7 @@ router.get("/server_credentials", async (req, res) => {
         },
       }
     );
-    // if (response?.data?) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "Something went wrong",
-    //   });
-    // }
-    // const targetCredentials = response?.data?.find(
-    //   (cred) => cred?.name === type
-    // );
-
-    // if (!targetCredentials) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "Invalid type",
-    //   });
-    // }
-
+   
     return res.status(200).json({
       success: true,
       data: response?.data,
@@ -340,7 +316,6 @@ router.post("/get_proxy", async (req, res) => {
           message: "Insufficient balance",
         });
       }
-      console.log(targetplan, location);
       try {
         const response = await axios.post(
           url,
@@ -359,7 +334,6 @@ router.post("/get_proxy", async (req, res) => {
             },
           }
         );
-        console.log(response?.data);
         if (response?.data?.error) {
           return res.status(400).json({
             success: false,
@@ -389,7 +363,8 @@ router.post("/get_proxy", async (req, res) => {
           await historyEntry.save();
           return res.status(200).json({
             success: true,
-            message: "Proxies generated successfully",
+            message: "Proxy generated successfully",
+            user: userfromdb,
             proxies: historyEntry.toObject(),
           });
         } else {
@@ -404,14 +379,8 @@ router.post("/get_proxy", async (req, res) => {
           message: "Error! Please try again",
         });
       }
-    } else if (
-      [
-        "Static Residential Proxies",
-        "Datacenter Proxies",
-        "Datacenter IPv6 Proxies",
-      ].includes(type)
-    ) {
-      if (!location || !plan || !quantity || isNaN(quantity)) {
+    } else if (type === "Static Residential Proxies") {
+      if (!location || !plan || !quantity || isNaN(quantity) || !country) {
         return res.status(400).json({
           success: false,
           message: "Please provide all the required fields",
@@ -440,22 +409,34 @@ router.post("/get_proxy", async (req, res) => {
           message: "Insufficient balance",
         });
       }
+      const payload = {
+        networkType: "RESIDENTIAL_STATIC",
+        ipVersion: "IPv4",
+        country: country,
+        isp: location,
+        proxyProtocol: "SOCKS5",
+        authenticationType: "USERNAME_PASSWORD",
+        quantity: quantity,
+        couponCode: "",
+        isAutoExtendEnabled: true,
+        autoExtendBandwidth: 0,
+      };
+      if (plan.includes("m")) {
+        const months = plan.split("m")[0];
+        payload.months = months;
+        console.log(payload);
+      } else {
+        const days = (Number(plan.split("w")[0]) * 7).toString();
+        payload.days = days;
+      }
       try {
         const response = await axios.post(
-          url,
-          {
-            product: {
-              id: mainPlan.productId,
-            },
-            plan: {
-              id: plan,
-              location: location,
-              quantity: 1,
-            },
-          },
+          "https://api.proxy-cheap.com/order/execute",
+          payload,
           {
             headers: {
-              Authorization: `Bearer ${process.env.Key}`,
+              "X-Api-Key": process.env.Proxy_cheap_key,
+              "X-Api-Secret": process.env.Proxy_cheap_secret,
               "Content-Type": "application/json",
             },
           }
@@ -466,31 +447,55 @@ router.post("/get_proxy", async (req, res) => {
             message: "Something went wrong",
           });
         }
-        userfromdb.balance = userfromdb.balance - price;
+        userfromdb.balance = Number(
+          (userfromdb.balance - price * quantity).toFixed(2)
+        );
         userfromdb.save();
         const getOrderInfo = await axios.get(
-          `https://api.digiproxy.cc/reseller/account/orders/${response?.data?.order_id}`,
+          `https://api.proxy-cheap.com/orders/${response?.data?.id}/proxies`,
           {
             headers: {
-              Authorization: `Bearer ${process.env.Key}`,
+              "X-Api-Key": process.env.Proxy_cheap_key,
+              "X-Api-Secret": process.env.Proxy_cheap_secret,
               "Content-Type": "application/json",
             },
           }
         );
 
-        if (!getOrderInfo?.data?.error) {
-          const historyEntry = new History({
-            user: userfromdb._id,
-            type: type,
-            order_id: response?.data?.order_id,
-            proxy: getOrderInfo?.data?.product?.proxies,
-          });
-          await historyEntry.save();
-          return res.status(200).json({
-            success: true,
-            message: "Proxies generated successfully",
-            proxies: historyEntry.toObject(),
-          });
+        if (!getOrderInfo?.data?.code) {
+          try {
+            if (!Array.isArray(getOrderInfo?.data)) {
+              return res.status(400).json({
+                success: false,
+                message: "Something went wrong",
+              });
+            }
+            const historyEntries = [];
+            const savePromises = getOrderInfo.data.map(async (proxy) => {
+              const formatedProxy = `${proxy?.connection?.publicIp}:${proxy?.connection?.socks5Port}:${proxy?.authentication?.username}:${proxy?.authentication?.password}`;
+              const historyEntry = new History({
+                user: userfromdb._id,
+                type: type,
+                order_id: response?.data?.id,
+                proxy: formatedProxy,
+              });
+              const savedEntry = await historyEntry.save();
+              historyEntries.push(savedEntry);
+            });
+            await Promise.all(savePromises);
+            return res.status(200).json({
+              success: true,
+              message: "Proxies generated successfully",
+              user: userfromdb,
+              proxies: historyEntries.map((entry) => entry.toObject()),
+            });
+          } catch (error) {
+            console.error("Error saving proxy history:", error);
+            return res.status(500).json({
+              success: false,
+              message: "Error saving proxy data",
+            });
+          }
         } else {
           return res.status(400).json({
             success: false,
@@ -504,7 +509,267 @@ router.post("/get_proxy", async (req, res) => {
         });
       }
     }
-  } catch (error) {}
+    return res.status(400).json({
+      success: false,
+      message: "Something went wrong",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong",
+    });
+  }
 });
+
+router.post("/get_plan", async (req, res) => {
+  try {
+    const { type, amount } = req.body;
+    const user = req?.user;
+    if (
+      !type ||
+      !["Premium Residential Proxies", "Budget Residential Proxies"].includes(
+        type
+      ) ||
+      !amount ||
+      isNaN(amount) ||
+      amount <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid plan type",
+      });
+    }
+    const targetPlans = await Plan.findOne({
+      name: type,
+    });
+    if (!targetPlans) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid plan type",
+      });
+    }
+    const plan = targetPlans.plans?.find((p) => p.amount === amount);
+    if (!plan) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid plan!",
+      });
+    }
+    if (user?.balance < plan.price) {
+      return res.status(400).json({
+        success: false,
+        message: "Insufficient balance",
+      });
+    }
+    const credentials =
+      type === "Premium Residential Proxies"
+        ? user?.ResidentialCredentials?.id
+        : user?.BudgetResidentialCredentials?.id;
+    const url =
+      type === "Premium Residential Proxies"
+        ? "https://api.digiproxy.cc/reseller/presidential/sub-users/create"
+        : "https://api.digiproxy.cc/reseller/budget-residential/sub-users/create";
+
+    const trafficUrl = (id) => {
+      return type === "Premium Residential Proxies"
+        ? `https://api.digiproxy.cc/reseller/presidential/sub-users/${id}/traffic/give`
+        : `https://api.digiproxy.cc/reseller/budget-residential/sub-users/${id}/traffic/give`;
+    };
+    const userfromdb = await User.findById(user._id);
+    if (!credentials) {
+      const response = await axios.post(
+        url,
+        {
+          email: user.email,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.Key}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      if (response?.data?.error) {
+        return res.status(400).json({
+          success: false,
+          message: "Something went wrong",
+        });
+      }
+      if (type === "Premium Residential Proxies") {
+        userfromdb.ResidentialCredentials = response?.data;
+      } else {
+        userfromdb.BudgetResidentialCredentials = response?.data;
+      }
+      if (amount > 1) {
+        //give more traffic
+        const giveTraffic = await axios.post(
+          trafficUrl(response?.data?.id),
+          {
+            amount: amount - 1,
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.Key}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+        if (!giveTraffic?.data || giveTraffic?.data?.error) {
+          userfromdb.balance = Number(
+            (userfromdb.balance - plan.price).toFixed(2)
+          );
+          userfromdb.save();
+          return res.status(400).json({
+            success: false,
+            message: "Something went wrong",
+          });
+        } else {
+          if (type === "Premium Residential Proxies") {
+            userfromdb.ResidentialCredentials = {
+              ...response?.data,
+              availableTraffic: amount,
+            };
+          } else {
+            userfromdb.BudgetResidentialCredentials = {
+              ...response?.data,
+              availableTraffic: amount,
+            };
+          }
+          userfromdb.balance = Number(
+            (userfromdb.balance - plan.price).toFixed(2)
+          );
+          userfromdb.save();
+          return res.status(200).json({
+            success: true,
+            message: "Plan purchased successfully",
+            user: userfromdb,
+          });
+        }
+      } else {
+        userfromdb.balance = Number(
+          (userfromdb.balance - plan.price).toFixed(2)
+        );
+        userfromdb.save();
+        return res.status(200).json({
+          success: true,
+          message: "Plan purchased successfully",
+          user: userfromdb,
+        });
+      }
+    } else {
+      const giveTraffic = await axios.post(
+        trafficUrl(credentials),
+        {
+          amount: amount,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.Key}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      if (!giveTraffic?.data || giveTraffic?.data?.error) {
+        return res.status(400).json({
+          success: false,
+          message: "Something went wrong",
+        });
+      } else {
+        if (type === "Premium Residential Proxies") {
+          userfromdb.ResidentialCredentials = {
+            ...userfromdb.ResidentialCredentials,
+            availableTraffic:
+              userfromdb.ResidentialCredentials.availableTraffic + amount,
+          };
+        } else {
+          userfromdb.BudgetResidentialCredentials = {
+            ...userfromdb.BudgetResidentialCredentials,
+            availableTraffic:
+              userfromdb.BudgetResidentialCredentials.availableTraffic + amount,
+          };
+        }
+        userfromdb.balance = Number(
+          (userfromdb.balance - plan.price).toFixed(2)
+        );
+        userfromdb.save();
+        return res.status(200).json({
+          success: true,
+          message: "Plan purchased successfully",
+          user: userfromdb,
+        });
+      }
+    }
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong",
+    });
+  }
+});
+
+router.get("/get_starts", async (req, res) => {
+  try {
+    const user = req?.user;
+    let budgetStat = { availableTraffic: 0, usedTraffic: 0 };
+    let premiumStat = { availableTraffic: 0, usedTraffic: 0 };
+    const userfromdb = await User.findById(user._id);
+    if (user?.BudgetResidentialCredentials?.id) {
+      const request = await axios.get(
+        `https://api.digiproxy.cc/reseller/residential/sub-users/${user?.BudgetResidentialCredentials?.id}`,
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.Key}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      if (request?.data && !request?.data?.error) {
+        budgetStat = {
+          availableTraffic: request?.data?.availableTraffic,
+          usedTraffic: request?.data?.usedTraffic,
+        };
+        userfromdb.BudgetResidentialCredentials = {
+          ...userfromdb.BudgetResidentialCredentials,
+          availableTraffic: request?.data?.availableTraffic,
+          usedTraffic: request?.data?.usedTraffic,
+        };
+      }
+    }
+    if (user?.ResidentialCredentials) {
+      const request = await axios.get(
+        `https://api.digiproxy.cc/reseller/residential/sub-users/${user?.ResidentialCredentials?.id}`,
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.Key}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      if (request?.data && !request?.data?.error) {
+        premiumStat = {
+          availableTraffic: request?.data?.availableTraffic,
+          usedTraffic: request?.data?.usedTraffic,
+        };
+        userfromdb.ResidentialCredentials = {
+          ...userfromdb.ResidentialCredentials,
+          availableTraffic: request?.data?.availableTraffic,
+          usedTraffic: request?.data?.usedTraffic,
+        };
+      }
+    }
+    userfromdb.save();
+    return res.status(200).json({
+      success: true,
+      budgetStat,
+      premiumStat,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong",
+    });
+  }
+});
+
 
 module.exports = router;

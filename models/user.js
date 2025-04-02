@@ -44,6 +44,13 @@ const userSchema = new mongoose.Schema({
       default: Date.now
     }
   },
+  refCode: {
+    type: String
+  },
+  referedBy:{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
   // payment:{
   //   status: {
   //     type: String,

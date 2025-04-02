@@ -9,12 +9,13 @@ const secretpassword = "myNameisSudipYouknowwhatareyoudoing";
 
 router.post("/payment", userAuth, async (req, res) => {
   try {
-    const { amount, method } = req.body;
-    if (!amount || amount <= 0) {
+    const { amount, method, currency } = req.body;
+    if (!amount || amount <= 0 || !["DOGE", "TRX", "LTC", "USDT" ].includes(currency)) {
       return res
         .status(400)
-        .json({ success: false, message: "Amount is required." });
+        .json({ success: false, message: "Invalid request" });
     }
+
 
     let orderid = "ORD" + Math.floor(Math.random() * 1000000);
     let order = await Transactions.findOne({ OrderID: orderid });
@@ -29,10 +30,10 @@ router.post("/payment", userAuth, async (req, res) => {
     });
     const paymentData = {
       amount: parseFloat(amount).toFixed(2),
-      currency: "USDT",
+      currency: "USD",
       order_id: orderid,
-      to_currency: "USDT",
-      lifetime: 600,
+      to_currency: currency,
+      lifetime: 3600,
       additional_data: additionalData,
       url_success: `${process.env.Client_Url}/payment/status/${orderid}`,
       url_failure: `${process.env.Client_Url}/payment/status/${orderid}`,
@@ -47,10 +48,6 @@ router.post("/payment", userAuth, async (req, res) => {
       .createHash("md5")
       .update(base64Data + apiKey)
       .digest("hex");
-
-    console.log("Base64 encoded:", base64Data);
-    console.log("Generated sign:", sign);
-
     // 3. Send the request with the ORIGINAL DATA in body (not base64)
     const response = await axios.post(
       "https://api.cryptomus.com/v1/payment",
@@ -104,10 +101,7 @@ router.post("/payment/status", async (req, res) => {
       });
     }
 
-    // The signature is valid, process the payment notification
     console.log("Payment notification received:", payload);
-
-    // Extract payment details
     const { order_id, status, amount, currency } = payload;
 
     const additionalData = JSON.parse(payload?.additional_data);

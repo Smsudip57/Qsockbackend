@@ -1,9 +1,9 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const planSchema = new mongoose.Schema({
   productId: {
     type: Number,
-    required: true
+    required: true,
   },
   name: {
     type: String,
@@ -14,39 +14,42 @@ const planSchema = new mongoose.Schema({
       "Datacenter Proxies",
       "Datacenter IPv6 Proxies",
       "Premium Residential Proxies",
-      "LTE Mobile Proxies"
-    ]
+      "LTE Mobile Proxies",
+    ],
   },
   plans: [
     {
       _id: { type: mongoose.Schema.Types.ObjectId, auto: true },
       amount: {
-        type: Number
+        type: Number,
+      },
+      id: {
+        type: String,
       },
       name: {
         type: String,
-        required: true
+        required: true,
       },
       tag: {
         type: String,
-        required: true
+        required: true,
       },
       note: {
         type: String,
-        required: true
+        required: true,
       },
       price: {
         type: Number,
-        required: true
-      }
-    }
+        required: true,
+      },
+    },
   ],
   createdAt: {
     type: Date,
-    default: Date.now
-  }
+    default: Date.now,
+  },
 });
 
-const Plan = mongoose.models.Plans || mongoose.model('Plans', planSchema);
+const Plan = mongoose.models.Plans || mongoose.model("Plans", planSchema);
 
 module.exports = Plan;

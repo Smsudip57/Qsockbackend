@@ -184,7 +184,7 @@ router.post("/create_plan", async (req, res) => {
       if (!amount) {
         return res.status(400).json({
           success: false,
-          message: "Plan id is required",
+          message: "Amount is required",
         });
       }
       const productexist = await Plan.findOne({

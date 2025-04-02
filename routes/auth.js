@@ -4,7 +4,148 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/user");
 const router = express.Router();
 const crypto = require("crypto");
+const nodemailer = require("nodemailer");
+const { default: axios } = require("axios");
 const JWT_SECRET = process.env.JWT_SECRET;
+
+const transporter = nodemailer.createTransport({
+  host: "qsocks.net",
+  port: 465,
+  secure: true,
+  auth: {
+    user: "noreply@qsocks.net",
+    pass: "xY8Hvai4uMjjA2s",
+  },
+});
+
+async function sendVerificationEmail(toEmail, verificationCode) {
+  try {
+    const mailOptions = {
+      from: '"Qsocks Support" <noreply@qsocks.net>',
+      to: toEmail,
+      subject: "Your Verification Code",
+      text: `Your verification code is: ${verificationCode}`,
+      html: `<!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Your QSocks Verification Code</title>
+      <style>
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          line-height: 1.6;
+          color: #333;
+          margin: 0;
+          padding: 0;
+          background-color: #f9f9f9;
+        }
+        .container {
+          max-width: 600px;
+          margin: 0 auto;
+          padding: 20px;
+          background-color: #ffffff;
+          border-radius: 8px;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+          text-align: center;
+          padding: 20px 0;
+          border-bottom: 1px solid #eee;
+        }
+        .logo {
+          max-width: 150px;
+          margin: 0 auto;
+          display: block;
+        }
+        .content {
+          padding: 30px 20px;
+          text-align: center;
+        }
+        .verification-code {
+          font-size: 32px;
+          font-weight: bold;
+          letter-spacing: 5px;
+          color: #33BA57;
+          padding: 15px;
+          margin: 20px 0;
+          background-color:rgba(51, 186, 87, 0.12);
+          border-radius: 6px;
+          display: inline-block;
+        }
+        .footer {
+          text-align: center;
+          padding: 20px;
+          font-size: 12px;
+          color: #666;
+          border-top: 1px solid #eee;
+        }
+        .note {
+          font-size: 14px;
+          margin: 20px 0;
+          padding: 10px;
+          background-color: #fffef0;
+          border-left: 4px solid #ffd700;
+          text-align: left;
+        }
+        .button {
+          display: inline-block;
+          padding: 10px 20px;
+          margin: 20px 0;
+          background-color: #33BA57;
+          color: white;
+          text-decoration: none;
+          border-radius: 4px;
+          font-weight: bold;
+        }
+        a{
+          color: #33BA57!important;
+          text-decoration: none;
+        }
+        a:hover {
+          text-decoration: underline;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <img src="${process.env.Current_Url}/logo.png" alt="QSocks Logo" class="logo" />
+          <h2>Email Verification</h2>
+        </div>
+        
+        <div class="content">
+          <h3>Hello!</h3>
+          <p>Thank you for choosing Qsocks. To complete your registration, please use the verification code below:</p>
+          
+          <div class="verification-code">${verificationCode}</div>
+          
+          <p>This code will expire in 60 seconds.</p>
+          
+          <div class="note">
+            <strong>Security Note:</strong> If you didn't request this code, please ignore this email or contact our support team.
+          </div>
+          
+          <p>Need help? <a href="https://qsocks.net/support">Contact our support team</a></p>
+        </div>
+        
+        <div class="footer">
+          <p>&copy; 2025 QSocks. All rights reserved.</p>
+          <p>Your privacy is important to us. View our <a href="https://qsocks.net/privacy">Privacy Policy</a>.</p>
+        </div>
+      </div>
+    </body>
+    </html>`,
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log("Email sent: ", info.response);
+    return true;
+  } catch (error) {
+    // console.error("Error sending email: ", error);
+    return false;
+  }
+}
 
 router.post("/login", async (req, res) => {
   try {
@@ -13,7 +154,7 @@ router.post("/login", async (req, res) => {
     if (!email || !password) {
       return res
         .status(400)
-        .json({ error: "Email and password are required." });
+        .json({ message: "Email and password are required." });
     }
 
     const user = await User.findOne({ email });
@@ -27,15 +168,30 @@ router.post("/login", async (req, res) => {
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return res.status(401).json({
-        error: "Invalid email or password.",
+        message: "Invalid email or password.",
       });
     }
     user.password = undefined;
 
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET);
-    res.cookie("user", token, {
+    const refreshtoken = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "30d",
+      }
+    );
+    res.cookie("refresh", refreshtoken, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/",
+    });
+    const accesstoken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "1h",
+    });
+    res.cookie("access", accesstoken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
       path: "/",
     });
@@ -49,7 +205,7 @@ router.post("/login", async (req, res) => {
     console.error("Error during login:", error);
     return res
       .status(500)
-      .json({ error: "An error occurred while logging in." });
+      .json({ message: "An error occurred while logging in." });
   }
 });
 
@@ -72,6 +228,7 @@ router.post("/register_verification", async (req, res) => {
     }
 
     const code = Math.floor(100000 + Math.random() * 900000);
+
     if (
       existingUser &&
       Date.now() - existingUser.varificationcode.createdAt < 60000
@@ -82,6 +239,13 @@ router.post("/register_verification", async (req, res) => {
           (60000 - (Date.now() - existingUser.varificationcode.createdAt)) /
           1000
         ).toFixed(0)} seconds before requesting a new code.`,
+      });
+    }
+    const emailSent = await sendVerificationEmail(email, code);
+    if (!emailSent) {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send verification email.",
       });
     }
     if (!existingUser) {
@@ -109,8 +273,8 @@ router.post("/register_verification", async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      // message: 'Verification code sent successfully.',
-      message: `Your verification code is ${code}`,
+      message: "Verification code sent successfully.",
+      // message: `Your verification code is ${code}`,
     });
   } catch (error) {
     console.error("Error during registration:", error);
@@ -126,7 +290,7 @@ router.post("/register_verification", async (req, res) => {
 
 router.post("/register", async (req, res) => {
   try {
-    const { code, email, password, confirmPassword } = req.body;
+    const { code, email, password, confirmPassword, refCode } = req.body;
 
     if (!email || !password || !confirmPassword) {
       return res.status(400).json({
@@ -163,27 +327,69 @@ router.post("/register", async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+    const generateRefCode = () => {
+      const chars =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+      let result = "";
+      for (let i = 0; i < 10; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return result;
+    };
+
+    const assignUniqueRefCode = async (user) => {
+      let isUnique = false;
+      let refCode;
+
+      while (!isUnique) {
+        refCode = generateRefCode();
+        const existingCodeUser = await User.findOne({ refCode });
+        if (!existingCodeUser) {
+          isUnique = true;
+        }
+      }
+      user.refCode = refCode;
+      return user;
+    };
 
     existingUser.password = hashedPassword;
     existingUser.isActive = true;
+    await assignUniqueRefCode(existingUser);
+    if (refCode) {
+      const referer = await User.findOne({ refCode: refCode });
+      if (referer) {
+        existingUser.referedBy = referer._id;
+      }
+    }
     const newUser = await existingUser.save();
-
-    const token = jwt.sign({ userId: newUser._id }, JWT_SECRET);
-
     newUser.password = undefined;
 
-    res.cookie("user", token, {
+    const refreshtoken = jwt.sign(
+      { userId: newUser._id },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "30d",
+      }
+    );
+    res.cookie("refresh", refreshtoken, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
       path: "/",
     });
-    // res.cookie('user', token, {
-    //   httpOnly: true,
-    //   secure: process.env.NODE_ENV === 'production',
-    //   sameSite: 'strict',
-    //   path: '/',
-    // });
+    const accesstoken = jwt.sign(
+      { userId: newUser._id },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "1h",
+      }
+    );
+    res.cookie("access", accesstoken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/",
+    });
 
     return res.status(201).json({
       success: true,
@@ -202,8 +408,134 @@ router.post("/register", async (req, res) => {
   }
 });
 
+router.post("/google-getway", async (req, res) => {
+  try {
+    const { name, email, photoURL, googleId, refCode } = req.body;
+
+    if (!email || !googleId) {
+      return res.status(400).json({
+        success: false,
+        message: "Something went wrong.",
+      });
+    }
+
+    let user = await User.findOne({ email });
+    let isNewUser = false;
+
+    if (!user) {
+      isNewUser = true;
+      const generateRefCode = () => {
+        const chars =
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        let result = "";
+        for (let i = 0; i < 10; i++) {
+          result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
+      };
+
+      const assignUniqueRefCode = async () => {
+        let isUnique = false;
+        let generatedRefCode;
+
+        while (!isUnique) {
+          generatedRefCode = generateRefCode();
+          const existingCodeUser = await User.findOne({
+            refCode: generatedRefCode,
+          });
+          if (!existingCodeUser) {
+            isUnique = true;
+          }
+        }
+
+        return generatedRefCode;
+      };
+
+      const userRefCode = await assignUniqueRefCode();
+
+      let referrerId = null;
+      if (refCode) {
+        const referer = await User.findOne({ refCode });
+        if (referer) {
+          referrerId = referer._id;
+        }
+      }
+
+      user = new User({
+        email,
+        googleId,
+        isActive: true,
+        profile: {
+          name: name || email.split("@")[0],
+          avatarUrl: photoURL,
+        },
+        refCode: userRefCode,
+        referedBy: referrerId,
+        balance: 0,
+      });
+
+      await user.save();
+    } else {
+      if (!user.googleId) {
+        user.googleId = googleId;
+      }
+
+      if (photoURL && (!user.profile || !user.profile.photo)) {
+        if (!user.profile) user.profile = {};
+        user.profile.avatarUrl = photoURL;
+      }
+
+      await user.save();
+    }
+    user.password = undefined;
+
+    const refreshtoken = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "30d",
+      }
+    );
+    res.cookie("refresh", refreshtoken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/",
+    });
+    const accesstoken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "1h",
+    });
+    res.cookie("access", accesstoken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/",
+    });
+
+    // Return response
+    return res.status(isNewUser ? 201 : 200).json({
+      success: true,
+      message: isNewUser ? "Registration successful." : "Login successful.",
+      user: user,
+    });
+  } catch (error) {
+    console.error("Error during Google authentication:", error);
+    return res.status(500).json({
+      success: false,
+      message: "An error occurred during Google authentication.",
+    });
+  }
+});
+
 router.get("/getuserinfo", async (req, res) => {
   try {
+    // try {
+    //   const response = await axios.post('http://localhost:3001/api/admin/create_plan', {
+    //     name:"1 Month", price:5, type:"Static Residential Proxies", id:"1m", note:"Start fresh Start strong", tag:"Starter"
+    //   })
+    // } catch (error) {
+      
+    // }
     const emptyObject = {
       url_callback: "25",
       currency: "USDT",
@@ -222,28 +554,76 @@ router.get("/getuserinfo", async (req, res) => {
     console.log("Base64 encoded:", base64Data);
     console.log("Generated sign:", sign);
 
-    const token = req.cookies.user;
-    if (!token) {
+    const accessToken = req.cookies.access;
+    const refreshToken = req.cookies.refresh;
+    if (!accessToken && !refreshToken) {
       return res.status(401).json({
-        error: "Authentication token is missing.",
+        success: false,
+        message: "Unauthorized",
       });
     }
 
-    let decoded;
+    let access;
     try {
-      decoded = jwt.verify(token, JWT_SECRET);
-    } catch (err) {
-      return res.status(401).json({
-        error: "Invalid or expired token.",
+      access = jwt.verify(accessToken, process.env.JWT_SECRET);
+    } catch (error) {}
+
+    let refresh;
+    try {
+      refresh = jwt.verify(refreshToken, process.env.JWT_SECRET);
+    } catch (error) {
+      res.clearCookie("refresh", { path: "/" });
+      res.clearCookie("access", { path: "/" });
+      return res.status(403).json({
+        success: false,
+        message: "Your session has expired",
+      });
+    }
+    if (!refresh) {
+      res.clearCookie("refresh", { path: "/" });
+      res.clearCookie("access", { path: "/" });
+      return res.status(403).json({
+        success: false,
+        message: "Your session has expired",
       });
     }
 
-    const { userId } = decoded;
-
+    const { userId } = refresh;
     const user = await User.findById(userId).select("-password");
     if (!user) {
+      res.clearCookie("refresh", { path: "/" });
+      res.clearCookie("access", { path: "/" });
       return res.status(404).json({
-        error: "User not found.",
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+    if (!access) {
+      const refreshtoken = jwt.sign(
+        { userId: user._id },
+        process.env.JWT_SECRET,
+        {
+          expiresIn: "30d",
+        }
+      );
+      res.cookie("refresh", refreshtoken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/",
+      });
+      const accesstoken = jwt.sign(
+        { userId: user._id },
+        process.env.JWT_SECRET,
+        {
+          expiresIn: "1h",
+        }
+      );
+      res.cookie("access", accesstoken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/",
       });
     }
 
@@ -262,13 +642,8 @@ router.get("/getuserinfo", async (req, res) => {
 
 router.get("/user/logout", (req, res) => {
   try {
-    res.cookie("user", "", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      path: "/",
-      expires: new Date(0),
-    });
+    res.clearCookie("refresh", { path: "/" });
+    res.clearCookie("access", { path: "/" });
 
     return res.status(200).json({
       success: true,
