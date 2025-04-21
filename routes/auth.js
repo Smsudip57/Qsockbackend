@@ -147,6 +147,136 @@ async function sendVerificationEmail(toEmail, verificationCode) {
   }
 }
 
+
+async function sendForgotPasswordEmail(toEmail, verificationCode) {
+  try {
+    const mailOptions = {
+      from: '"Qsocks Support" <noreply@qsocks.net>',
+      to: toEmail,
+      subject: "Password Reset Code",
+      text: `Your password reset code is: ${verificationCode}. This code will expire in 1 hour.`,
+      html: `<!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>QSocks Password Reset Code</title>
+      <style>
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          line-height: 1.6;
+          color: #333;
+          margin: 0;
+          padding: 0;
+          background-color: #f9f9f9;
+        }
+        .container {
+          max-width: 600px;
+          margin: 0 auto;
+          padding: 20px;
+          background-color: #ffffff;
+          border-radius: 8px;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+          text-align: center;
+          padding: 20px 0;
+          border-bottom: 1px solid #eee;
+        }
+        .logo {
+          max-width: 150px;
+          margin: 0 auto;
+          display: block;
+        }
+        .content {
+          padding: 30px 20px;
+          text-align: center;
+        }
+        .verification-code {
+          font-size: 32px;
+          font-weight: bold;
+          letter-spacing: 5px;
+          color: #33BA57;
+          padding: 15px;
+          margin: 20px 0;
+          background-color:rgba(51, 186, 87, 0.12);
+          border-radius: 6px;
+          display: inline-block;
+        }
+        .footer {
+          text-align: center;
+          padding: 20px;
+          font-size: 12px;
+          color: #666;
+          border-top: 1px solid #eee;
+        }
+        .note {
+          font-size: 14px;
+          margin: 20px 0;
+          padding: 10px;
+          background-color: #fffef0;
+          border-left: 4px solid #ffd700;
+          text-align: left;
+        }
+        .button {
+          display: inline-block;
+          padding: 10px 20px;
+          margin: 20px 0;
+          background-color: #33BA57;
+          color: white;
+          text-decoration: none;
+          border-radius: 4px;
+          font-weight: bold;
+        }
+        a{
+          color: #33BA57!important;
+          text-decoration: none;
+        }
+        a:hover {
+          text-decoration: underline;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <img src="${process.env.Current_Url}/logo.png" alt="QSocks Logo" class="logo" />
+          <h2>Password Reset</h2>
+        </div>
+        
+        <div class="content">
+          <h3>Hello!</h3>
+          <p>We received a request to reset your password. Please use the code below to reset your password:</p>
+          
+          <div class="verification-code">${verificationCode}</div>
+          
+          <p>This code will expire in 1 hour.</p>
+          
+          <div class="note">
+            <strong>Security Note:</strong> If you didn't request this password reset, please ignore this email or contact our support team immediately.
+          </div>
+          
+          <p>Need help? <a href="https://qsocks.net/support">Contact our support team</a></p>
+        </div>
+        
+        <div class="footer">
+          <p>&copy; 2025 QSocks. All rights reserved.</p>
+          <p>Your privacy is important to us. View our <a href="https://qsocks.net/privacy">Privacy Policy</a>.</p>
+        </div>
+      </div>
+    </body>
+    </html>`,
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log("Password reset email sent: ", info.response);
+    return true;
+  } catch (error) {
+    console.error("Error sending password reset email: ", error);
+    return false;
+  }
+}
+
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -288,6 +418,136 @@ router.post("/register_verification", async (req, res) => {
   }
 });
 
+
+router.post("/forgot_verification", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required.",
+      });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (!existingUser?.isActive) {
+      return res.status(409).json({
+        success: false,
+        message: "Email is not found.",
+      });
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000);
+
+    if (
+      existingUser &&
+      Date.now() - existingUser.varificationcode.createdAt < 60000
+    ) {
+      return res.status(409).json({
+        success: false,
+        message: `Please wait for ${(
+          (60000 - (Date.now() - existingUser.varificationcode.createdAt)) /
+          60000
+        ).toFixed(0)} secends before requesting a new code.`,
+      });
+    }
+    const emailSent = await sendForgotPasswordEmail(email, code);
+    if (!emailSent) {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send verification email.",
+      });
+    }
+    await User.findOneAndUpdate(
+      { email },
+      {
+        varificationcode: {
+          code: code,
+          createdAt: Date.now(),
+        },
+      })
+
+    return res.status(200).json({
+      success: true,
+      message: "Verification code sent successfully.",
+      // message: `Your verification code is ${code}`,
+    });
+  } catch (error) {
+    console.error("Error during password reset:", error);
+    const mongooseerror = error.message
+      ? error.message.split(":").shift().trim()
+      : null;
+    return res.status(500).json({
+      success: false,
+      message: mongooseerror || "An error occurred during registration.",
+    });
+  }
+});
+
+router.post("/reset_password", async (req, res) => {
+  try {
+    const { email, code, password, confirmPassword } = req.body;
+
+    // Validate required fields
+    if (!email || !code || !password || !confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "All required fields must be filled."
+      });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Passwords do not match."
+      });
+    }
+
+    // Find user by email
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found."
+      });
+    }
+
+    if (
+      user.varificationcode.code !== parseInt(code) ||
+      Date.now() - user.varificationcode.createdAt > 3600000
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: `Verification code is ${user.varificationcode.code !== parseInt(code) ? "incorrect" : "expired"}.`
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    user.password = hashedPassword;
+    user.varificationcode = {
+      code: null,
+      createdAt: null
+    };
+    
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Password reset successful. You can now login with your new password.",
+      user: user
+    });
+  } catch (error) {
+    console.error("Error resetting password:", error);
+    const mongooseError = error.message
+      ? error.message.split(":").shift().trim()
+      : null;
+    return res.status(500).json({
+      success: false,
+      message: mongooseError || "An error occurred during password reset."
+    });
+  }
+})
+
 router.post("/register", async (req, res) => {
   try {
     const { code, email, password, confirmPassword, refCode } = req.body;
@@ -320,9 +580,8 @@ router.post("/register", async (req, res) => {
     ) {
       return res.status(409).json({
         success: false,
-        message: `Validation code is ${
-          existingUser.varificationcode.code !== code ? "incorrect" : "expired"
-        }.`,
+        message: `Validation code is ${existingUser.varificationcode.code !== code ? "incorrect" : "expired"
+          }.`,
       });
     }
 
@@ -534,7 +793,7 @@ router.get("/getuserinfo", async (req, res) => {
     //     name:"1 Month", price:5, type:"Static Residential Proxies", id:"1m", note:"Start fresh Start strong", tag:"Starter"
     //   })
     // } catch (error) {
-      
+
     // }
     const emptyObject = {
       url_callback: "25",
@@ -566,7 +825,7 @@ router.get("/getuserinfo", async (req, res) => {
     let access;
     try {
       access = jwt.verify(accessToken, process.env.JWT_SECRET);
-    } catch (error) {}
+    } catch (error) { }
 
     let refresh;
     try {
