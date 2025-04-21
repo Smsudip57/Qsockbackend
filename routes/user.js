@@ -13,10 +13,10 @@ router.get("/proxy_history", async (req, res) => {
       user?.role === "admin"
         ? await History.find().sort({ createdAt: -1 })
         : type
-        ? await History.find({ user: user._id, type: type }).sort({
+          ? await History.find({ user: user._id, type: type }).sort({
             createdAt: -1,
           })
-        : await History.find({ user: user._id }).sort({ createdAt: -1 });
+          : await History.find({ user: user._id }).sort({ createdAt: -1 });
 
     const filteredHistory = history.filter((entry) =>
       type ? entry.type === type : true
@@ -109,10 +109,19 @@ router.post("/generate", async (req, res) => {
           }
         );
         if (!response?.data?.error) {
+          const proxyarr = response?.data?.map((item) => {
+            if (typeof item === 'string') {
+              const parts = item.split(':');
+              return [`https://qsocks.net`, parts[1], parts[2], parts[3]].join(':');
+            } else {
+              return `https://qsocks.net:${item?.port}:${item?.user}:${item?.pass}`;
+            }
+          })
+
           return res.status(200).json({
             success: true,
             message: "Residential proxies generated successfully",
-            proxies: response?.data,
+            proxies: proxyarr,
           });
         } else {
           return res.status(400).json({
@@ -168,10 +177,18 @@ router.post("/generate_budget", async (req, res) => {
           }
         );
         if (!response?.data?.error) {
+          const proxyarr = response?.data?.map((item) => {
+            if (typeof item === 'string') {
+              const parts = item.split(':');
+              return [`https://qsocks.net`, parts[1], parts[2], parts[3]].join(':');
+            } else {
+              return `https://qsocks.net:${item?.port}:${item?.user}:${item?.pass}`;
+            }
+          })
           return res.status(200).json({
             success: true,
             message: "Residential proxies generated successfully",
-            proxies: response?.data,
+            proxies: proxyarr,
           });
         } else {
           return res.status(400).json({
@@ -204,8 +221,8 @@ router.get("/plan", async (req, res) => {
     const { type } = req.query;
     const plan = type
       ? await Plan.findOne({
-          name: type,
-        })
+        name: type,
+      })
       : await Plan.find();
     return res.status(200).json({
       success: true,
@@ -356,11 +373,20 @@ router.post("/get_proxy", async (req, res) => {
         );
 
         if (!getOrderInfo?.data?.error) {
+          let proxyarr
+          const item = getOrderInfo?.data?.product?.proxies
+          if (typeof item === 'string') {
+            const parts = item.split(':');
+            proxyarr = [`https://qsocks.net`, parts[1], parts[2], parts[3]].join(':');
+          } else {
+            proxyarr = `https://qsocks.net:${item?.port}:${item?.user}:${item?.pass}`;
+          }
+
           const historyEntry = new History({
             user: userfromdb._id,
             type: "LTE Mobile Proxies",
             order_id: response?.data?.order_id,
-            proxy: getOrderInfo?.data?.product?.proxies,
+            proxy: proxyarr,
           });
           await historyEntry.save();
           return res.status(200).json({
