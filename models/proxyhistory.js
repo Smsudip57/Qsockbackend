@@ -10,7 +10,14 @@ const proxySchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
   },
   order_id: {
-    type: Number,
+    type: mongoose.Schema.Types.Mixed,
+    validate: {
+      validator: function (value) {
+        return typeof value === "string" || typeof value === "number";
+      },
+      message: (props) =>
+        `${props.value} is not a valid order ID! Must be string or number.`,
+    },
   },
   type: {
     type: String,
@@ -34,6 +41,7 @@ const proxySchema = new mongoose.Schema({
   },
 });
 
-const Proxyhistory = mongoose.models.Proxyhistory || mongoose.model("Proxyhistory", proxySchema);
+const Proxyhistory =
+  mongoose.models.Proxyhistory || mongoose.model("Proxyhistory", proxySchema);
 
 module.exports = Proxyhistory;

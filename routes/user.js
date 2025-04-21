@@ -148,12 +148,14 @@ router.post("/generate_budget", async (req, res) => {
         req.body;
       const location = `${country}${city}`;
       try {
+
         const response = await axios.post(
           "https://api.digiproxy.cc/reseller/products/budget-residential/generate",
           {
             port: port,
             location: location,
-            lifetime: rotation === "random" ? lifetime : 14400,
+            lifetime: rotation === "random" ? null : lifetime,
+            lifetime: 3,
             count: quantity,
             rotation: rotation,
             subuser: user?.BudgetResidentialCredentials?.id,
@@ -267,7 +269,7 @@ router.get("/server_credentials", async (req, res) => {
         },
       }
     );
-   
+
     return res.status(200).json({
       success: true,
       data: response?.data,
@@ -424,35 +426,53 @@ router.post("/get_proxy", async (req, res) => {
       if (plan.includes("m")) {
         const months = plan.split("m")[0];
         payload.months = months;
-        console.log(payload);
       } else {
-        const days = (Number(plan.split("w")[0]) * 7).toString();
+        let days;
+        if (plan.includes("w")) {
+          const weeksMatch = plan.match(/(\d+)w/);
+          if (weeksMatch && weeksMatch[1]) {
+            const weeks = parseInt(weeksMatch[1], 10);
+            days = (weeks * 7).toString();
+          } else {
+            days = "7";
+          }
+        } else {
+          days = "7";
+        }
         payload.days = days;
       }
+      // console.log(payload);
+      // return res.status(200).json({
+      //   success: true,
+      //   payload,
+      //   message: "Proxies generated successfully",
+      // });
       try {
-        const response = await axios.post(
-          "https://api.proxy-cheap.com/order/execute",
-          payload,
-          {
-            headers: {
-              "X-Api-Key": process.env.Proxy_cheap_key,
-              "X-Api-Secret": process.env.Proxy_cheap_secret,
-              "Content-Type": "application/json",
-            },
-          }
-        );
-        if (response?.data?.error) {
-          return res.status(400).json({
-            success: false,
-            message: "Something went wrong",
-          });
-        }
+        // const response = await axios.post(
+        //   "https://api.proxy-cheap.com/order/execute",
+        //   payload,
+        //   {
+        //     headers: {
+        //       "X-Api-Key": process.env.Proxy_cheap_key,
+        //       "X-Api-Secret": process.env.Proxy_cheap_secret,
+        //       "Content-Type": "application/json",
+        //     },
+        //   }
+        // );
+        // console.log(response?.data);
+        // if (response?.data?.error) {
+        //   return res.status(400).json({
+        //     success: false,
+        //     message: "Something went wrong",
+        //   });
+        // }
         userfromdb.balance = Number(
           (userfromdb.balance - price * quantity).toFixed(2)
         );
         userfromdb.save();
         const getOrderInfo = await axios.get(
-          `https://api.proxy-cheap.com/orders/${response?.data?.id}/proxies`,
+          // `https://api.proxy-cheap.com/orders/${response?.data?.id}/proxies`,
+          `https://api.proxy-cheap.com/orders/84b357d1-0fcf-11f0-8647-0204b4dab599/proxies`,
           {
             headers: {
               "X-Api-Key": process.env.Proxy_cheap_key,
@@ -461,7 +481,7 @@ router.post("/get_proxy", async (req, res) => {
             },
           }
         );
-
+        console.log(getOrderInfo?.data);
         if (!getOrderInfo?.data?.code) {
           try {
             if (!Array.isArray(getOrderInfo?.data)) {
@@ -476,7 +496,8 @@ router.post("/get_proxy", async (req, res) => {
               const historyEntry = new History({
                 user: userfromdb._id,
                 type: type,
-                order_id: response?.data?.id,
+                // order_id: response?.data?.id,
+                order_id: "84b357d1-0fcf-11f0-8647-0204b4dab599",
                 proxy: formatedProxy,
               });
               const savedEntry = await historyEntry.save();
@@ -770,6 +791,5 @@ router.get("/get_starts", async (req, res) => {
     });
   }
 });
-
 
 module.exports = router;

@@ -9,7 +9,7 @@ const { default: axios } = require("axios");
 const JWT_SECRET = process.env.JWT_SECRET;
 
 const transporter = nodemailer.createTransport({
-  host: "qsocks.net",
+  host: "premium247.web-hosting.com",
   port: 465,
   secure: true,
   auth: {
@@ -531,7 +531,7 @@ router.get("/getuserinfo", async (req, res) => {
   try {
     // try {
     //   const response = await axios.post('http://localhost:3001/api/admin/create_plan', {
-    //     name:"1 Month", price:5, type:"Static Residential Proxies", id:"1m", note:"Start fresh Start strong", tag:"Starter"
+    //     name:"1 Week", price:2.7, type:"Static Residential Proxies", id:"1d", note:"Weekly Blaze", tag:"Weekend"
     //   })
     // } catch (error) {
       
