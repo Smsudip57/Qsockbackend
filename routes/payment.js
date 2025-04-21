@@ -127,7 +127,8 @@ router.get("/payment/status/:id", userAuth, async (req, res) => {
       success: true,
       message: "Transaction processed successfully",
       transaction,
-      isPaid: true
+      isPaid: true,
+      user: req.user
     });
   } catch (error) {
     console.error("Error fetching transaction status:", error);
