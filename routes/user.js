@@ -13,10 +13,10 @@ router.get("/proxy_history", async (req, res) => {
       user?.role === "admin"
         ? await History.find().sort({ createdAt: -1 })
         : type
-          ? await History.find({ user: user._id, type: type }).sort({
+        ? await History.find({ user: user._id, type: type }).sort({
             createdAt: -1,
           })
-          : await History.find({ user: user._id }).sort({ createdAt: -1 });
+        : await History.find({ user: user._id }).sort({ createdAt: -1 });
 
     const filteredHistory = history.filter((entry) =>
       type ? entry.type === type : true
@@ -110,13 +110,15 @@ router.post("/generate", async (req, res) => {
         );
         if (!response?.data?.error) {
           const proxyarr = response?.data?.map((item) => {
-            if (typeof item === 'string') {
-              const parts = item.split(':');
-              return [`https://qsocks.net`, parts[1], parts[2], parts[3]].join(':');
+            if (typeof item === "string") {
+              const parts = item.split(":");
+              return [`premium.qsocks.net`, parts[1], parts[2], parts[3]].join(
+                ":"
+              );
             } else {
-              return `https://qsocks.net:${item?.port}:${item?.user}:${item?.pass}`;
+              return `premium.qsocks.net:${item?.port}:${item?.user}:${item?.pass}`;
             }
-          })
+          });
 
           return res.status(200).json({
             success: true,
@@ -157,7 +159,6 @@ router.post("/generate_budget", async (req, res) => {
         req.body;
       const location = `${country}${city}`;
       try {
-
         const response = await axios.post(
           "https://api.digiproxy.cc/reseller/products/budget-residential/generate",
           {
@@ -178,13 +179,18 @@ router.post("/generate_budget", async (req, res) => {
         );
         if (!response?.data?.error) {
           const proxyarr = response?.data?.map((item) => {
-            if (typeof item === 'string') {
-              const parts = item.split(':');
-              return [`https://qsocks.net`, parts[1], parts[2], parts[3]].join(':');
+            if (typeof item === "string") {
+              const parts = item.split(":");
+              return [
+                `residential.qsocks.net`,
+                parts[1],
+                parts[2],
+                parts[3],
+              ].join(":");
             } else {
-              return `https://qsocks.net:${item?.port}:${item?.user}:${item?.pass}`;
+              return `residential.qsocks.net:${item?.port}:${item?.user}:${item?.pass}`;
             }
-          })
+          });
           return res.status(200).json({
             success: true,
             message: "Residential proxies generated successfully",
@@ -221,8 +227,8 @@ router.get("/plan", async (req, res) => {
     const { type } = req.query;
     const plan = type
       ? await Plan.findOne({
-        name: type,
-      })
+          name: type,
+        })
       : await Plan.find();
     return res.status(200).json({
       success: true,
@@ -373,15 +379,7 @@ router.post("/get_proxy", async (req, res) => {
         );
 
         if (!getOrderInfo?.data?.error) {
-          let proxyarr
-          const item = getOrderInfo?.data?.product?.proxies
-          if (typeof item === 'string') {
-            const parts = item.split(':');
-            proxyarr = [`https://qsocks.net`, parts[1], parts[2], parts[3]].join(':');
-          } else {
-            proxyarr = `https://qsocks.net:${item?.port}:${item?.user}:${item?.pass}`;
-          }
-
+          let proxyarr = getOrderInfo?.data?.product?.proxies;
           const historyEntry = new History({
             user: userfromdb._id,
             type: "LTE Mobile Proxies",
@@ -647,12 +645,12 @@ router.post("/get_plan", async (req, res) => {
       } else {
         userfromdb.BudgetResidentialCredentials = response?.data;
       }
-      if (amount > 1) {
+      if (amount > 0) {
         //give more traffic
         const giveTraffic = await axios.post(
           trafficUrl(response?.data?.id),
           {
-            amount: amount - 1,
+            amount: amount ,
           },
           {
             headers: {

@@ -110,7 +110,7 @@ async function sendVerificationEmail(toEmail, verificationCode) {
     <body>
       <div class="container">
         <div class="header">
-          <img src="${process.env.Current_Url}/logo.png" alt="QSocks Logo" class="logo" />
+          <img src="${process.env.Client_Url}/logo.png" alt="QSocks Logo" class="logo" />
           <h2>Email Verification</h2>
         </div>
         
@@ -146,7 +146,6 @@ async function sendVerificationEmail(toEmail, verificationCode) {
     return false;
   }
 }
-
 
 async function sendForgotPasswordEmail(toEmail, verificationCode) {
   try {
@@ -240,7 +239,7 @@ async function sendForgotPasswordEmail(toEmail, verificationCode) {
     <body>
       <div class="container">
         <div class="header">
-          <img src="${process.env.Current_Url}/logo.png" alt="QSocks Logo" class="logo" />
+          <img src="${process.env.Client_Url}/logo.png" alt="QSocks Logo" class="logo" />
           <h2>Password Reset</h2>
         </div>
         
@@ -418,7 +417,6 @@ router.post("/register_verification", async (req, res) => {
   }
 });
 
-
 router.post("/forgot_verification", async (req, res) => {
   try {
     const { email } = req.body;
@@ -465,7 +463,8 @@ router.post("/forgot_verification", async (req, res) => {
           code: code,
           createdAt: Date.now(),
         },
-      })
+      }
+    );
 
     return res.status(200).json({
       success: true,
@@ -492,14 +491,14 @@ router.post("/reset_password", async (req, res) => {
     if (!email || !code || !password || !confirmPassword) {
       return res.status(400).json({
         success: false,
-        message: "All required fields must be filled."
+        message: "All required fields must be filled.",
       });
     }
 
     if (password !== confirmPassword) {
       return res.status(400).json({
         success: false,
-        message: "Passwords do not match."
+        message: "Passwords do not match.",
       });
     }
 
@@ -508,17 +507,21 @@ router.post("/reset_password", async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found."
+        message: "User not found.",
       });
     }
 
     if (
-      user.varificationcode.code !== parseInt(code) ||
+      user.varificationcode.code !== code ||
       Date.now() - user.varificationcode.createdAt > 3600000
     ) {
       return res.status(400).json({
         success: false,
-        message: `Verification code is ${user.varificationcode.code !== parseInt(code) ? "incorrect" : "expired"}.`
+        message: `Verification code is ${
+          user.varificationcode.code !== parseInt(code)
+            ? "incorrect"
+            : "expired"
+        }.`,
       });
     }
 
@@ -526,15 +529,38 @@ router.post("/reset_password", async (req, res) => {
     user.password = hashedPassword;
     user.varificationcode = {
       code: null,
-      createdAt: null
+      createdAt: null,
     };
-    
-    await user.save();
 
+    await user.save();
+    user.password = undefined;
+    const refreshtoken = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "30d",
+      }
+    );
+    res.cookie("refresh", refreshtoken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/",
+    });
+
+    const accesstoken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "1h",
+    });
+    res.cookie("access", accesstoken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/",
+    });
     return res.status(200).json({
       success: true,
-      message: "Password reset successful. You can now login with your new password.",
-      user: user
+      message: "Password reset successful.",
+      user: user,
     });
   } catch (error) {
     console.error("Error resetting password:", error);
@@ -543,10 +569,10 @@ router.post("/reset_password", async (req, res) => {
       : null;
     return res.status(500).json({
       success: false,
-      message: mongooseError || "An error occurred during password reset."
+      message: mongooseError || "An error occurred during password reset.",
     });
   }
-})
+});
 
 router.post("/register", async (req, res) => {
   try {
@@ -580,8 +606,9 @@ router.post("/register", async (req, res) => {
     ) {
       return res.status(409).json({
         success: false,
-        message: `Validation code is ${existingUser.varificationcode.code !== code ? "incorrect" : "expired"
-          }.`,
+        message: `Validation code is ${
+          existingUser.varificationcode.code !== code ? "incorrect" : "expired"
+        }.`,
       });
     }
 
@@ -825,7 +852,7 @@ router.get("/getuserinfo", async (req, res) => {
     let access;
     try {
       access = jwt.verify(accessToken, process.env.JWT_SECRET);
-    } catch (error) { }
+    } catch (error) {}
 
     let refresh;
     try {

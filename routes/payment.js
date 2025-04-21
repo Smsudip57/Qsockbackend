@@ -37,7 +37,7 @@ router.post("/payment", userAuth, async (req, res) => {
       additional_data: additionalData,
       url_success: `${process.env.Client_Url}/payment/status/${orderid}`,
       url_failure: `${process.env.Client_Url}/payment/status/${orderid}`,
-      url_callback: `${process.env.Current_Url}/payment/status`,
+      url_callback: `${process.env.Current_Url}/api/payment/cryptomous_hook?userId=${req.user._id}`,
     };
 
     const jsonString = JSON.stringify(paymentData);
@@ -70,25 +70,88 @@ router.post("/payment", userAuth, async (req, res) => {
   }
 });
 
-router.post("/payment/status", async (req, res) => {
+// Change from POST to GET
+router.get("/payment/status/:id", userAuth, async (req, res) => {
   try {
-    const signature = req.headers.sign;
+    const { id } = req.params;
+    
+    // Check transaction in database
+    const transaction = await Transactions.findOne({ OrderID: id });
+    
+    if (!transaction) {
+      const checkData = {
+        order_id: id
+      };
+      
+      const jsonString = JSON.stringify(checkData);
+      const base64Data = Buffer.from(jsonString).toString("base64");
+      const apiKey = "zuOF61ZJzxwB77Bl7aBUbyAY4f1AJDbjfRyU7ZflGuvY9mSf4eFVkjNZjOvmFLCbUkxUmIVvTrXDZl84bKbnKnCXeEhGhZnrEeBnchD4WNMowNzg5r6C2eHHiM4TOJtr";
+      const sign = crypto
+        .createHash("md5")
+        .update(base64Data + apiKey)
+        .digest("hex");
+        
+      try {
+        const response = await axios.post(
+          "https://api.cryptomus.com/v1/payment/info",
+          checkData,
+          {
+            headers: {
+              "Content-Type": "application/json",
+              merchant: "fc2d156e-2d57-4d03-a3c1-cd2c735bbe69",
+              sign: sign,
+            },
+          }
+        );
+        
+        const paymentInfo = response?.data?.result;
+        if (paymentInfo) {
+          return res.status(200).json({
+            success: true,
+            message: `Transaction status: ${paymentInfo.status}`,
+            transaction: paymentInfo,
+            isPaid: ["paid", "paid_over", "wrong_amount"].includes(paymentInfo.status)
+          });
+        }
+      } catch (apiError) {
+        // console.error("Error checking payment with Cryptomus:", apiError);
+      }
+      
+      return res.status(404).json({ 
+        success: false, 
+        message: "Transaction not Found" 
+      });
+    }
+    
+    return res.status(200).json({
+      success: true,
+      message: "Transaction processed successfully",
+      transaction,
+      isPaid: true
+    });
+  } catch (error) {
+    console.error("Error fetching transaction status:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
+router.post("/cryptomous_hook", async (req, res) => {
+  try {
+    const { sign: signature } = req.body;
 
     if (!signature) {
       return res.status(400).json({
         success: false,
-        message: "Missing signature in headers",
+        message: "Missing signature",
       });
     }
 
     const payload = req.body;
-
     const payloadCopy = { ...payload };
     if (payloadCopy?.sign) delete payloadCopy.sign;
 
     const data = Buffer.from(JSON.stringify(payloadCopy)).toString("base64");
-    const apiKey =
-      "zuOF61ZJzxwB77Bl7aBUbyAY4f1AJDbjfRyU7ZflGuvY9mSf4eFVkjNZjOvmFLCbUkxUmIVvTrXDZl84bKbnKnCXeEhGhZnrEeBnchD4WNMowNzg5r6C2eHHiM4TOJtr";
+    const apiKey = "zuOF61ZJzxwB77Bl7aBUbyAY4f1AJDbjfRyU7ZflGuvY9mSf4eFVkjNZjOvmFLCbUkxUmIVvTrXDZl84bKbnKnCXeEhGhZnrEeBnchD4WNMowNzg5r6C2eHHiM4TOJtr";
     const calculatedSignature = crypto
       .createHash("md5")
       .update(data + apiKey)
@@ -101,7 +164,7 @@ router.post("/payment/status", async (req, res) => {
       });
     }
 
-    console.log("Payment notification received:", payload);
+    console.log("Cryptomous hook payment notification received:", payload);
     const { order_id, status, amount, currency } = payload;
 
     const additionalData = JSON.parse(payload?.additional_data);
@@ -112,6 +175,7 @@ router.post("/payment/status", async (req, res) => {
       });
     }
 
+    // Process payment status (same logic as your current implementation)
     if (["paid", "paid_over", "wrong_amount"].includes(status)) {
       let transaction = await Transactions.findOne({ OrderID: order_id });
       if (!transaction) {
@@ -122,34 +186,30 @@ router.post("/payment/status", async (req, res) => {
         });
         await transaction.save();
       } else {
-       return  res.status(200).json({
+        return res.status(200).json({
           success: true,
           message: "Webhook processed successfully",
         });
       }
 
-      // If payment is successful, update user balance
-      const user = await User.findById(transaction.userId);
+      const user = await User.findById(additionalData.userId);
       if (user) {
         user.balance = (parseFloat(user.balance) || 0) + parseFloat(amount);
         await user.save();
       }
     }
 
-    // Send response to Cryptomus
     return res.status(200).json({
       success: true,
       message: "Webhook processed successfully",
     });
   } catch (error) {
-    console.error("Webhook error:", error);
+    console.error("Cryptomous hook error:", error);
     return res.status(500).json({
       success: false,
       message: "Error processing webhook",
     });
   }
 });
-
-// ...existing code...
 
 module.exports = router;
