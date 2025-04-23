@@ -494,8 +494,8 @@ router.post("/get_proxy", async (req, res) => {
         );
         userfromdb.save();
         const getOrderInfo = await axios.get(
-          // `https://api.proxy-cheap.com/orders/${response?.data?.id}/proxies`,
-          `https://api.proxy-cheap.com/orders/84b357d1-0fcf-11f0-8647-0204b4dab599/proxies`,
+          `https://api.proxy-cheap.com/orders/${response?.data?.id}/proxies`,
+          // `https://api.proxy-cheap.com/orders/84b357d1-0fcf-11f0-8647-0204b4dab599/proxies`,
           {
             headers: {
               "X-Api-Key": process.env.Proxy_cheap_key,
@@ -504,7 +504,7 @@ router.post("/get_proxy", async (req, res) => {
             },
           }
         );
-        console.log(getOrderInfo?.data);
+        // console.log(getOrderInfo?.data);
         if (!getOrderInfo?.data?.code) {
           try {
             if (!Array.isArray(getOrderInfo?.data)) {
