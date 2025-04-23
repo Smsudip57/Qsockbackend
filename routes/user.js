@@ -165,7 +165,6 @@ router.post("/generate_budget", async (req, res) => {
             port: port,
             location: location,
             lifetime: rotation === "random" ? null : lifetime,
-            lifetime: 3,
             count: quantity,
             rotation: rotation,
             subuser: user?.BudgetResidentialCredentials?.id,

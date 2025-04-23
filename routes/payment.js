@@ -77,6 +77,8 @@ router.get("/payment/status/:id", userAuth, async (req, res) => {
     
     // Check transaction in database
     const transaction = await Transactions.findOne({ OrderID: id });
+
+    console.log(transaction);
     
     if (!transaction) {
       const checkData = {
@@ -105,6 +107,7 @@ router.get("/payment/status/:id", userAuth, async (req, res) => {
         );
         
         const paymentInfo = response?.data?.result;
+        console.log(paymentInfo)
         if (paymentInfo) {
           return res.status(200).json({
             success: true,
@@ -178,6 +181,7 @@ router.post("/cryptomous_hook", async (req, res) => {
 
     // Process payment status (same logic as your current implementation)
     if (["paid", "paid_over", "wrong_amount"].includes(status)) {
+      console.log("got hit", order_id, status, amount, currency);
       let transaction = await Transactions.findOne({ OrderID: order_id });
       if (!transaction) {
         transaction = new Transactions({
