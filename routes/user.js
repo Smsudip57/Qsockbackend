@@ -471,24 +471,24 @@ router.post("/get_proxy", async (req, res) => {
       //   message: "Proxies generated successfully",
       // });
       try {
-        // const response = await axios.post(
-        //   "https://api.proxy-cheap.com/order/execute",
-        //   payload,
-        //   {
-        //     headers: {
-        //       "X-Api-Key": process.env.Proxy_cheap_key,
-        //       "X-Api-Secret": process.env.Proxy_cheap_secret,
-        //       "Content-Type": "application/json",
-        //     },
-        //   }
-        // );
-        // console.log(response?.data);
-        // if (response?.data?.error) {
-        //   return res.status(400).json({
-        //     success: false,
-        //     message: "Something went wrong",
-        //   });
-        // }
+        const response = await axios.post(
+          "https://api.proxy-cheap.com/order/execute",
+          payload,
+          {
+            headers: {
+              "X-Api-Key": process.env.Proxy_cheap_key,
+              "X-Api-Secret": process.env.Proxy_cheap_secret,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+        console.log(response?.data);
+        if (response?.data?.error) {
+          return res.status(400).json({
+            success: false,
+            message: "Something went wrong",
+          });
+        }
         userfromdb.balance = Number(
           (userfromdb.balance - price * quantity).toFixed(2)
         );
