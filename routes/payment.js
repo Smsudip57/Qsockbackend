@@ -139,7 +139,7 @@ router.get("/payment/status/:id", userAuth, async (req, res) => {
   }
 });
 
-router.post("/cryptomous_hook", async (req, res) => {
+router.post("/payment/cryptomous_hook", async (req, res) => {
   try {
     const { sign: signature } = req.body;
 

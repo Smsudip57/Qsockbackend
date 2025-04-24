@@ -549,7 +549,7 @@ router.post("/get_proxy", async (req, res) => {
       } catch (error) {
         return res.status(400).json({
           success: false,
-          message: "Error! Please try again",
+          message: `"Error! Please try again"`,
         });
       }
     }
