@@ -13,10 +13,10 @@ router.get("/proxy_history", async (req, res) => {
       user?.role === "admin"
         ? await History.find().sort({ createdAt: -1 })
         : type
-        ? await History.find({ user: user._id, type: type }).sort({
+          ? await History.find({ user: user._id, type: type }).sort({
             createdAt: -1,
           })
-        : await History.find({ user: user._id }).sort({ createdAt: -1 });
+          : await History.find({ user: user._id }).sort({ createdAt: -1 });
 
     const filteredHistory = history.filter((entry) =>
       type ? entry.type === type : true
@@ -109,7 +109,7 @@ router.post("/generate", async (req, res) => {
           }
         );
         if (!response?.data?.error) {
-          const proxyarr = response?.data?.map((item) => {
+          const proxyarr = response?.data?.proxies?.map((item) => {
             if (typeof item === "string") {
               const parts = item.split(":");
               return [`premium.qsocks.net`, parts[1], parts[2], parts[3]].join(
@@ -158,13 +158,21 @@ router.post("/generate_budget", async (req, res) => {
       const { country, state, lifetime, city, quantity, rotation, port } =
         req.body;
       const location = `${country}${city}`;
+      console.log({
+        port: port,
+        location: location,
+        // lifetime: rotation === "random" ? null : lifetime,
+        count: quantity,
+        rotation: rotation,
+        subuser: user?.BudgetResidentialCredentials?.id,
+      })
       try {
         const response = await axios.post(
           "https://api.digiproxy.cc/reseller/products/budget-residential/generate",
           {
             port: port,
             location: location,
-            lifetime: rotation === "random" ? null : lifetime,
+            lifetime: rotation === "random" ? 3 : lifetime,
             count: quantity,
             rotation: rotation,
             subuser: user?.BudgetResidentialCredentials?.id,
@@ -176,8 +184,9 @@ router.post("/generate_budget", async (req, res) => {
             },
           }
         );
+        // console.log(response?.data);
         if (!response?.data?.error) {
-          const proxyarr = response?.data?.map((item) => {
+          const proxyarr = response?.data?.proxies.map((item) => {
             if (typeof item === "string") {
               const parts = item.split(":");
               return [
@@ -202,6 +211,8 @@ router.post("/generate_budget", async (req, res) => {
           });
         }
       } catch (error) {
+        // console.log(error?.response?.data);
+        // console.log(error);
         return res.status(400).json({
           success: false,
           message: "Error! Please try again",
@@ -226,8 +237,8 @@ router.get("/plan", async (req, res) => {
     const { type } = req.query;
     const plan = type
       ? await Plan.findOne({
-          name: type,
-        })
+        name: type,
+      })
       : await Plan.find();
     return res.status(200).json({
       success: true,
@@ -243,20 +254,28 @@ router.get("/plan", async (req, res) => {
 
 router.get("/lte_credentials", async (req, res) => {
   try {
-    const url = "https://api.digiproxy.cc/reseller/products/lte/available";
-    const { country } = req.query;
+    const { country, region, protocol, connection,zip } = req.query;
+    const url = (country && region && protocol && connection && zip)?`https://api.digiproxy.cc/reseller/products/lte/available_quantity?country_code=${country}&region_code=${region}&protocol=${protocol}&conn_type=${connection}&zip_code=${zip}`: (country && region && protocol && connection) ? `https://api.digiproxy.cc/reseller/products/lte/zip_list?country_code=${country}&region_code=${region}&protocol=${protocol}&conn_type=${connection}` : (country && !region) ? `https://api.digiproxy.cc/reseller/products/lte/regions/${country}` : "https://api.digiproxy.cc/reseller/products/lte/countries";
     const response = await axios.get(url, {
-      params: country ? { country: country } : {},
+      params: (country && region && protocol && connection) ? {
+        country_code: country,
+        region_code: region,
+        protocol: protocol,
+        conn_type: connection,
+        zip_code: zip,
+      } : {},
       headers: {
         Authorization: `Bearer ${process.env.Key}`,
         "Content-Type": "application/json",
       },
     });
+    // console.log(response?.data);
     return res.status(200).json({
       success: true,
       data: response?.data,
     });
   } catch (error) {
+    console.log(error);
     return res.status(500).json({
       success: false,
       message: "Something went wrong",
@@ -346,10 +365,10 @@ router.post("/get_proxy", async (req, res) => {
           {
             product: {
               id: targetplan.productId,
+              ...location,
+              amount:1
             },
-            plan: {
-              id: location,
-            },
+          
           },
           {
             headers: {
@@ -376,7 +395,6 @@ router.post("/get_proxy", async (req, res) => {
             },
           }
         );
-
         if (!getOrderInfo?.data?.error) {
           let proxyarr = getOrderInfo?.data?.product?.proxies;
           const historyEntry = new History({
@@ -399,6 +417,8 @@ router.post("/get_proxy", async (req, res) => {
           });
         }
       } catch (error) {
+        console.log(error);
+        console.log(error?.response?.data);
         return res.status(400).json({
           success: false,
           message: "Error! Please try again",
@@ -649,7 +669,7 @@ router.post("/get_plan", async (req, res) => {
         const giveTraffic = await axios.post(
           trafficUrl(response?.data?.id),
           {
-            amount: amount ,
+            amount: amount,
           },
           {
             headers: {
