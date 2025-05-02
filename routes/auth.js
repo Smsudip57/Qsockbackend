@@ -311,8 +311,9 @@ router.post("/login", async (req, res) => {
     );
     res.cookie("refresh", refreshtoken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      secure: true,
+      sameSite: "lax",
+      domain: ".qsocks.net",
       path: "/",
     });
     const accesstoken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
@@ -320,8 +321,9 @@ router.post("/login", async (req, res) => {
     });
     res.cookie("access", accesstoken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      secure: true,
+      sameSite: "lax",
+      domain: ".qsocks.net",
       path: "/",
     });
 
@@ -542,8 +544,9 @@ router.post("/reset_password", async (req, res) => {
     );
     res.cookie("refresh", refreshtoken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      secure: true,
+      sameSite: "lax",
+      domain: ".qsocks.net",
       path: "/",
     });
 
@@ -552,8 +555,9 @@ router.post("/reset_password", async (req, res) => {
     });
     res.cookie("access", accesstoken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      secure: true,
+      sameSite: "lax",
+      domain: ".qsocks.net",
       path: "/",
     });
     return res.status(200).json({
@@ -657,8 +661,9 @@ router.post("/register", async (req, res) => {
     );
     res.cookie("refresh", refreshtoken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      secure: true,
+      sameSite: "lax",
+      domain: ".qsocks.net",
       path: "/",
     });
     const accesstoken = jwt.sign(
@@ -670,8 +675,9 @@ router.post("/register", async (req, res) => {
     );
     res.cookie("access", accesstoken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      secure: true,
+      sameSite: "lax",
+      domain: ".qsocks.net",
       path: "/",
     });
 
@@ -894,8 +900,9 @@ router.get("/getuserinfo", async (req, res) => {
       );
       res.cookie("refresh", refreshtoken, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
+        secure: true,
+        sameSite: "lax",
+        domain: ".qsocks.net",
         path: "/",
       });
       const accesstoken = jwt.sign(
@@ -907,8 +914,9 @@ router.get("/getuserinfo", async (req, res) => {
       );
       res.cookie("access", accesstoken, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
+        secure: true,
+        sameSite: "lax",
+        domain: ".qsocks.net",
         path: "/",
       });
     }
