@@ -785,7 +785,8 @@ router.post("/google-getway", async (req, res) => {
     res.cookie("refresh", refreshtoken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "None",
+      sameSite: "strict",
+      domain: ".qsocks.net",
       path: "/",
     });
     const accesstoken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
@@ -794,7 +795,8 @@ router.post("/google-getway", async (req, res) => {
     res.cookie("access", accesstoken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "None",
+      sameSite: "strict",
+      domain: ".qsocks.net",
       path: "/",
     });
 
