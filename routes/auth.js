@@ -785,7 +785,7 @@ router.post("/google-getway", async (req, res) => {
     res.cookie("refresh", refreshtoken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: "lax",
       domain: ".qsocks.net",
       path: "/",
     });
@@ -795,7 +795,7 @@ router.post("/google-getway", async (req, res) => {
     res.cookie("access", accesstoken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: "lax",
       domain: ".qsocks.net",
       path: "/",
     });
