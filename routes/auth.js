@@ -517,11 +517,10 @@ router.post("/reset_password", async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: `Verification code is ${
-          user.varificationcode.code !== parseInt(code)
+        message: `Verification code is ${user.varificationcode.code !== parseInt(code)
             ? "incorrect"
             : "expired"
-        }.`,
+          }.`,
       });
     }
 
@@ -606,9 +605,8 @@ router.post("/register", async (req, res) => {
     ) {
       return res.status(409).json({
         success: false,
-        message: `Validation code is ${
-          existingUser.varificationcode.code !== code ? "incorrect" : "expired"
-        }.`,
+        message: `Validation code is ${existingUser.varificationcode.code !== code ? "incorrect" : "expired"
+          }.`,
       });
     }
 
@@ -854,7 +852,7 @@ router.get("/getuserinfo", async (req, res) => {
     let access;
     try {
       access = jwt.verify(accessToken, process.env.JWT_SECRET);
-    } catch (error) {}
+    } catch (error) { }
 
     let refresh;
     try {
@@ -930,9 +928,18 @@ router.get("/getuserinfo", async (req, res) => {
 
 router.get("/user/logout", (req, res) => {
   try {
-    res.clearCookie("refresh", { path: "/" });
-    res.clearCookie("access", { path: "/" });
-
+    res.clearCookie("refresh", {
+      path: "/",
+      domain: ".qsocks.net",
+      secure: true,
+      sameSite: "lax"
+    });
+    res.clearCookie("access", {
+      path: "/",
+      domain: ".qsocks.net",
+      secure: true,
+      sameSite: "lax"
+    });
     return res.status(200).json({
       success: true,
       message: "Logout successful.",
