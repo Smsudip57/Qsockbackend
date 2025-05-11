@@ -3,7 +3,7 @@ const User = require("../models/user");
 
 const adminAuth = async (req, res, next) => {
   try {
-    return next();
+    // return next();
     const accessToken = req.cookies.access;
     const refreshToken = req.cookies.refresh;
     if (!accessToken && !refreshToken) {
