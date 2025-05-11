@@ -51,16 +51,10 @@ const userSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
-  // payment:{
-  //   status: {
-  //     type: String,
-  //     enum: ['paid', 'unpaid'],
-  //     default: 'unpaid'
-  //   },
-  //   transactionId: {
-  //     type: String,
-  //   }
-  // },
+  isSuspended: {
+    type: Boolean,
+    default: false
+  },
  isActive: {
    type: Boolean,
    default: false

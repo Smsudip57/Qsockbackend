@@ -185,6 +185,7 @@ router.post("/payment/cryptomous_hook", async (req, res) => {
       let transaction = await Transactions.findOne({ OrderID: order_id });
       if (!transaction) {
         transaction = new Transactions({
+          user: additionalData?.userId,
           OrderID: order_id,
           Amount: amount,
           userId: additionalData?.userId,

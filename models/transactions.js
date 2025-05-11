@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
+const User = require('./user');
 
 const transactionsSchema = new mongoose.Schema({
+    user: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },  
     OrderID: {
         type: String,
         required: true,

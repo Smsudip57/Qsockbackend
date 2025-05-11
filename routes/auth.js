@@ -11,7 +11,7 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const transporter = nodemailer.createTransport({
   host: "premium247.web-hosting.com",
   port: 465,
-  secure: true,
+  secure: process.env.NODE_ENV === "production",
   auth: {
     user: "noreply@qsocks.net",
     pass: "xY8Hvai4uMjjA2s",
@@ -311,9 +311,9 @@ router.post("/login", async (req, res) => {
     );
     res.cookie("refresh", refreshtoken, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      domain: ".qsocks.net",
+      // domain: ".qsocks.net"
       path: "/",
     });
     const accesstoken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
@@ -321,9 +321,9 @@ router.post("/login", async (req, res) => {
     });
     res.cookie("access", accesstoken, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      domain: ".qsocks.net",
+      
       path: "/",
     });
 
@@ -544,9 +544,9 @@ router.post("/reset_password", async (req, res) => {
     );
     res.cookie("refresh", refreshtoken, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      domain: ".qsocks.net",
+      
       path: "/",
     });
 
@@ -555,9 +555,9 @@ router.post("/reset_password", async (req, res) => {
     });
     res.cookie("access", accesstoken, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      domain: ".qsocks.net",
+      
       path: "/",
     });
     return res.status(200).json({
@@ -661,9 +661,9 @@ router.post("/register", async (req, res) => {
     );
     res.cookie("refresh", refreshtoken, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      domain: ".qsocks.net",
+      
       path: "/",
     });
     const accesstoken = jwt.sign(
@@ -675,9 +675,9 @@ router.post("/register", async (req, res) => {
     );
     res.cookie("access", accesstoken, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      domain: ".qsocks.net",
+      
       path: "/",
     });
 
@@ -788,9 +788,9 @@ router.post("/google-getway", async (req, res) => {
     );
     res.cookie("refresh", refreshtoken, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      domain: ".qsocks.net",
+      
       path: "/",
     });
     const accesstoken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
@@ -798,9 +798,9 @@ router.post("/google-getway", async (req, res) => {
     });
     res.cookie("access", accesstoken, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      domain: ".qsocks.net",
+      
       path: "/",
     });
 
@@ -900,9 +900,9 @@ router.get("/getuserinfo", async (req, res) => {
       );
       res.cookie("refresh", refreshtoken, {
         httpOnly: true,
-        secure: true,
+        secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
-        domain: ".qsocks.net",
+        
         path: "/",
       });
       const accesstoken = jwt.sign(
@@ -914,9 +914,9 @@ router.get("/getuserinfo", async (req, res) => {
       );
       res.cookie("access", accesstoken, {
         httpOnly: true,
-        secure: true,
+        secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
-        domain: ".qsocks.net",
+        
         path: "/",
       });
     }
@@ -938,14 +938,14 @@ router.get("/user/logout", (req, res) => {
   try {
     res.clearCookie("refresh", {
       path: "/",
-      domain: ".qsocks.net",
-      secure: true,
+      
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax"
     });
     res.clearCookie("access", {
       path: "/",
-      domain: ".qsocks.net",
-      secure: true,
+      
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax"
     });
     return res.status(200).json({
