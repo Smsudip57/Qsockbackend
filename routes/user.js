@@ -254,8 +254,8 @@ router.get("/plan", async (req, res) => {
 
 router.get("/lte_credentials", async (req, res) => {
   try {
-    const { country, region, protocol, connection,zip } = req.query;
-    const url = (country && region && protocol && connection && zip)?`https://api.digiproxy.cc/reseller/products/lte/available_quantity?country_code=${country}&region_code=${region}&protocol=${protocol}&conn_type=${connection}&zip_code=${zip}`: (country && region && protocol && connection) ? `https://api.digiproxy.cc/reseller/products/lte/zip_list?country_code=${country}&region_code=${region}&protocol=${protocol}&conn_type=${connection}` : (country && !region) ? `https://api.digiproxy.cc/reseller/products/lte/regions/${country}` : "https://api.digiproxy.cc/reseller/products/lte/countries";
+    const { country, region, protocol, connection, zip } = req.query;
+    const url = (country && region && protocol && connection && zip) ? `https://api.digiproxy.cc/reseller/products/lte/available_quantity?country_code=${country}&region_code=${region}&protocol=${protocol}&conn_type=${connection}&zip_code=${zip}` : (country && region && protocol && connection) ? `https://api.digiproxy.cc/reseller/products/lte/zip_list?country_code=${country}&region_code=${region}&protocol=${protocol}&conn_type=${connection}` : (country && !region) ? `https://api.digiproxy.cc/reseller/products/lte/regions/${country}` : "https://api.digiproxy.cc/reseller/products/lte/countries";
     const response = await axios.get(url, {
       params: (country && region && protocol && connection) ? {
         country_code: country,
@@ -366,9 +366,9 @@ router.post("/get_proxy", async (req, res) => {
             product: {
               id: targetplan.productId,
               ...location,
-              amount:1
+              amount: 1
             },
-          
+
           },
           {
             headers: {
@@ -399,6 +399,9 @@ router.post("/get_proxy", async (req, res) => {
           let proxyarr = getOrderInfo?.data?.product?.proxies;
           const historyEntry = new History({
             user: userfromdb._id,
+            plan: {
+              id: "24H"
+            },
             type: "LTE Mobile Proxies",
             order_id: response?.data?.order_id,
             proxy: proxyarr,
@@ -484,12 +487,29 @@ router.post("/get_proxy", async (req, res) => {
         }
         payload.days = days;
       }
-      // console.log(payload);
-      // return res.status(200).json({
-      //   success: true,
-      //   payload,
-      //   message: "Proxies generated successfully",
-      // });
+      // Extract validity period from plan id
+      const getValidityPeriod = (plan) => {
+        if (plan.includes("m")) {
+          const months = parseInt(plan.split("m")[0], 10);
+          return `${months} ${months === 1 ? 'Month' : 'Months'}`;
+        } else if (plan.includes("w")) {
+          const weeksMatch = plan.match(/(\d+)w/);
+          if (weeksMatch && weeksMatch[1]) {
+            const weeks = parseInt(weeksMatch[1], 10);
+            return `${weeks} ${weeks === 1 ? 'Week' : 'Weeks'}`;
+          }
+          return "1 Week"; // Default if pattern doesn't match but has 'w'
+        } else if (plan.includes("d")) {
+          const daysMatch = plan.match(/(\d+)d/);
+          if (daysMatch && daysMatch[1]) {
+            const days = parseInt(daysMatch[1], 10);
+            return `${days} ${days === 1 ? 'Day' : 'Days'}`;
+          }
+          return "7 Days"; // Default for days
+        } else {
+          return null
+        }
+      };
       try {
         const response = await axios.post(
           "https://api.proxy-cheap.com/order/execute",
@@ -539,8 +559,11 @@ router.post("/get_proxy", async (req, res) => {
               const historyEntry = new History({
                 user: userfromdb._id,
                 type: type,
-                // order_id: response?.data?.id,
-                order_id: "84b357d1-0fcf-11f0-8647-0204b4dab599",
+                plan: {
+                  id: getValidityPeriod(plan),
+                },
+                order_id: response?.data?.id,
+                // order_id: "84b357d1-0fcf-11f0-8647-0204b4dab599",
                 proxy: formatedProxy,
               });
               const savedEntry = await historyEntry.save();

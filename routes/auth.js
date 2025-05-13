@@ -11,11 +11,13 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const transporter = nodemailer.createTransport({
   host: "premium247.web-hosting.com",
   port: 465,
-  secure: process.env.NODE_ENV === "production",
+  secure: true,
   auth: {
     user: "noreply@qsocks.net",
     pass: "xY8Hvai4uMjjA2s",
   },
+  connectionTimeout: 10000, 
+  greetingTimeout: 10000
 });
 
 async function sendVerificationEmail(toEmail, verificationCode) {
@@ -142,7 +144,7 @@ async function sendVerificationEmail(toEmail, verificationCode) {
     console.log("Email sent: ", info.response);
     return true;
   } catch (error) {
-    // console.error("Error sending email: ", error);
+    console.error("Error sending email: ", error);
     return false;
   }
 }

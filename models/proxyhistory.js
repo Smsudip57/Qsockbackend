@@ -7,7 +7,8 @@ const proxySchema = new mongoose.Schema({
     required: true,
   },
   plan: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: Object,
+    required: true,
   },
   order_id: {
     type: mongoose.Schema.Types.Mixed,
