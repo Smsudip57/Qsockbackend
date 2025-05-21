@@ -5,6 +5,73 @@ const History = require("../models/proxyhistory");
 const router = express.Router();
 const axios = require("axios");
 
+
+const testProxyConnection = async (proxy, type = 'socks5') => {
+  try {
+    const [host, port, username, password] = proxy.split(':');
+    
+    console.log(`Testing ${type.toUpperCase()} proxy connection to ${host}:${port}`);
+    
+    if (type.toLowerCase() === 'socks5') {
+      try {
+        const { SocksProxyAgent } = require('socks-proxy-agent');
+        
+        // Create a SOCKS proxy agent
+        const socksAgent = new SocksProxyAgent(`socks5://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}`);
+        
+        // Test connection with a longer timeout
+        const testResponse = await axios.get('https://api.ipify.org?format=json', {
+          httpsAgent: socksAgent,
+          timeout: 15000
+        });
+        
+        console.log(`SOCKS5 proxy test response: ${testResponse.status}, IP: ${testResponse.data.ip}`);
+        return testResponse.status === 200;
+      } catch (socksError) {
+        console.error(`SOCKS5 proxy test failed: ${socksError.message}`);
+        
+        // If specific errors that suggest the proxy exists but rejects test connections
+        if (socksError.message.includes('NotAllowed') || 
+            socksError.message.includes('rejected')) {
+          console.log('Proxy appears to exist but test access is restricted. Bypassing.');
+          return true;
+        }
+        return false;
+      }
+    } else  {
+      try {
+        const proxyConfig = {
+          host: host,
+          port: parseInt(port),
+          auth: {
+            username: username,
+            password: password
+          },
+          protocol: 'http'
+        };
+        // Test connection
+        const testResponse = await axios.get('http://api.ipify.org?format=json', {
+          proxy: proxyConfig,
+          timeout: 15000,
+          validateStatus: function (status) {
+            return status >= 200 && status < 600;
+          }
+        });
+        
+        console.log(`HTTP proxy test response: ${testResponse.status}, IP: ${testResponse.data.ip}`);
+        return testResponse.status >= 200 && testResponse.status < 400;
+      } catch (httpError) {
+        console.error(`HTTP proxy test failed: ${httpError.message}`);
+        return false;
+      }
+    } 
+  } catch (error) {
+    console.error(`Proxy connection test failed: ${error.message}`);
+    return false;
+  }
+};
+
+
 router.get("/proxy_history", async (req, res) => {
   try {
     const user = req?.user;
@@ -90,7 +157,7 @@ router.post("/generate", async (req, res) => {
     const user = req?.user;
     if (user?.ResidentialCredentials?.availableTraffic > 0) {
       const { country, state, city, quantity, rotation, port } = req.body;
-      const location = `${country}_${state}_${city}`;
+      const location = `${country}_${state || ""}_${city|| ""}`;
       try {
         const response = await axios.post(
           "https://api.digiproxy.cc/reseller/products/presidential/generate",
@@ -119,12 +186,36 @@ router.post("/generate", async (req, res) => {
               return `premium.qsocks.net:${item?.port}:${item?.user}:${item?.pass}`;
             }
           });
+          console.log(proxyarr);
+          if (proxyarr.length > 0) {
+            const proxyWorks = await testProxyConnection(proxyarr[0], port);
+            
+            if (proxyWorks) {
+              res.end(JSON.stringify({
+                success: true,
+                message: "Residential proxies generated successfully",
+                proxies: proxyarr,
+                status: "success"
+              }));
+            } else {
+              res.end(JSON.stringify({
+                success: false,
+                message: "Proxies are not available for this location. Please try a different location.",
+                status: "failed"
+              }));
+            }
+          } else {
+            return res.status(400).json({
+              success: false,
+              message: "No proxies were generated. Please try a different location.",
+            });
+          }
 
-          return res.status(200).json({
-            success: true,
-            message: "Residential proxies generated successfully",
-            proxies: proxyarr,
-          });
+          // return res.status(200).json({
+          //   success: true,
+          //   message: "Residential proxies generated successfully",
+          //   proxies: proxyarr,
+          // });
         } else {
           return res.status(400).json({
             success: false,
@@ -199,11 +290,31 @@ router.post("/generate_budget", async (req, res) => {
               return `residential.qsocks.net:${item?.port}:${item?.user}:${item?.pass}`;
             }
           });
-          return res.status(200).json({
-            success: true,
-            message: "Residential proxies generated successfully",
-            proxies: proxyarr,
-          });
+          
+          if (proxyarr.length > 0) {
+            const proxyWorks = await testProxyConnection(proxyarr[0], port);
+            console.log("Budget proxy working:", proxyWorks);
+            
+            if (proxyWorks) {
+              return res.status(200).json({
+                success: true,
+                message: "Residential proxies generated successfully",
+                proxies: proxyarr,
+                status: "success"
+              });
+            } else {
+              return res.status(400).json({
+                success: false,
+                message: "Proxies are not available for this location. Please try a different location.",
+                status: "failed"
+              });
+            }
+          } else {
+            return res.status(400).json({
+              success: false,
+              message: "No proxies were generated. Please try a different location.",
+            });
+          }
         } else {
           return res.status(400).json({
             success: false,
@@ -821,8 +932,10 @@ router.get("/get_starts", async (req, res) => {
           usedTraffic: request?.data?.usedTraffic,
         };
       }
+      
     }
-    if (user?.ResidentialCredentials) {
+    // console.log(user?.ResidentialCredentials)
+    if (user?.ResidentialCredentials?.id) {
       const request = await axios.get(
         `https://api.digiproxy.cc/reseller/residential/sub-users/${user?.ResidentialCredentials?.id}`,
         {
@@ -851,6 +964,7 @@ router.get("/get_starts", async (req, res) => {
       premiumStat,
     });
   } catch (error) {
+    console.log(error.message)
     return res.status(500).json({
       success: false,
       message: "Something went wrong",

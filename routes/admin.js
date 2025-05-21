@@ -994,13 +994,17 @@ router.post("/users/bulk-add-balance", async (req, res) => {
         message: "Valid amount is required"
       });
     }
-
+    if (!note || (note !== "add" && note !== "add_without_record" && note !== "deduct")) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid note parameter is required: 'add', 'add_without_record', or 'deduct'"
+      });
+    }
     const results = {
       successful: [],
       failed: []
     };
 
-    // Process each user
     for (const userId of userIds) {
       try {
         const user = await User.findById(userId);
@@ -1010,20 +1014,24 @@ router.post("/users/bulk-add-balance", async (req, res) => {
           continue;
         }
 
-        // Add balance to user
-        user.balance += parseFloat(amount);
+        let transaction = null;
+        if (note.includes("add")) {
+          user.balance += parseFloat(amount);
+          if (note !== "add_without_record") {
+
+            transaction = new Transaction({
+              OrderID: `BULK-${Date.now()}-${userId}`,
+              Amount: parseFloat(amount),
+              method: "Admin Credit",
+              user: userId,
+              note: "Balance added by admin"
+            });
+            await transaction.save();
+          }
+        } else if (note === "deduct") {
+          user.balance -= parseFloat(amount);
+        }
         await user.save();
-
-        // Record transaction
-        const transaction = new Transaction({
-          OrderID: `BULK-${Date.now()}-${userId}`,
-          Amount: parseFloat(amount),
-          method: "Admin Credit",
-          user: userId,
-          note: note || "Bulk balance added by admin"
-        });
-
-        await transaction.save();
 
         results.successful.push({
           userId,
@@ -1035,9 +1043,11 @@ router.post("/users/bulk-add-balance", async (req, res) => {
       }
     }
 
+
+
     return res.status(200).json({
       success: true,
-      message: `Balance added to ${results.successful.length} users`,
+      message: note.includes("add") ? `Balance added to ${results.successful.length} users` : `Balance deducted ${results.successful.length} users`,
       results
     });
   } catch (error) {
@@ -1175,7 +1185,7 @@ router.post("/users/:userId/add-balance", async (req, res) => {
   try {
     const { userId } = req.params;
     const { amount, note } = req.body;
-
+    // add_without_record deduct
     if (!amount || isNaN(amount) || amount <= 0) {
       return res.status(400).json({
         success: false,
@@ -1192,24 +1202,33 @@ router.post("/users/:userId/add-balance", async (req, res) => {
       });
     }
 
-    // Add balance to user
-    user.balance += parseFloat(amount);
+    let msg
+    let transaction = null;
+    if (note.includes("add")) {
+      user.balance += parseFloat(amount);
+      msg = `$${amount} added to user balance successfully`
+      if (note !== "add_without_record") {
+
+        transaction = new Transaction({
+          OrderID: `ADMIN-${Date.now()}`,
+          Amount: parseFloat(amount),
+          method: "Admin Credit",
+          user: userId,
+          note: "Balance added by admin"
+        });
+        await transaction.save();
+        msg = `$${amount} added to user balance successfully and recorded`
+      }
+    } else if (note === "deduct") {
+      user.balance -= parseFloat(amount);
+      msg = `$${amount} deducted from user balance successfully`
+    }
     await user.save();
 
-    // Record this as a transaction
-    const transaction = new Transaction({
-      OrderID: `ADMIN-${Date.now()}`,
-      Amount: parseFloat(amount),
-      method: "Admin Credit",
-      user: userId,
-      note: note || "Balance added by admin"
-    });
-
-    await transaction.save();
 
     return res.status(200).json({
       success: true,
-      message: `$${amount} added to user balance successfully`,
+      message: msg,
       user,
       transaction
     });
@@ -1374,7 +1393,7 @@ router.patch("/users/:userId/unban", async (req, res) => {
 router.get("/sales-dashboard", async (req, res) => {
   try {
     // Get query parameters for filtering
-    const { 
+    const {
       dateFilter = 'all',   // 'today', 'month', 'all'
       searchTerm = '',      // search by OrderID
       paymentMethod = 'all' // filter by payment method
@@ -1390,19 +1409,19 @@ router.get("/sales-dashboard", async (req, res) => {
 
     // Build filter for transactions
     const transactionFilter = {};
-    
+
     // Apply date filter
     if (dateFilter === 'today') {
       transactionFilter.createdAt = { $gte: todayStart };
     } else if (dateFilter === 'month') {
       transactionFilter.createdAt = { $gte: monthStart };
     }
-    
+
     // Apply payment method filter
     if (paymentMethod !== 'all') {
       transactionFilter.method = paymentMethod;
     }
-    
+
     // Apply search filter if provided
     if (searchTerm) {
       transactionFilter.OrderID = { $regex: searchTerm, $options: 'i' };
@@ -1419,70 +1438,86 @@ router.get("/sales-dashboard", async (req, res) => {
       // Today's stats
       Transaction.aggregate([
         { $match: { createdAt: { $gte: todayStart } } },
-        { $group: { 
-          _id: null, 
-          totalSales: { $sum: "$Amount" }, 
-          count: { $sum: 1 } 
-        }}
+        {
+          $group: {
+            _id: null,
+            totalSales: { $sum: "$Amount" },
+            count: { $sum: 1 }
+          }
+        }
       ]),
-      
+
       // Yesterday's stats
       Transaction.aggregate([
-        { $match: { 
-          createdAt: { 
-            $gte: yesterdayStart, 
-            $lt: todayStart 
-          } 
-        }},
-        { $group: { 
-          _id: null, 
-          totalSales: { $sum: "$Amount" }, 
-          count: { $sum: 1 } 
-        }}
+        {
+          $match: {
+            createdAt: {
+              $gte: yesterdayStart,
+              $lt: todayStart
+            }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalSales: { $sum: "$Amount" },
+            count: { $sum: 1 }
+          }
+        }
       ]),
-      
+
       // This month's stats
       Transaction.aggregate([
         { $match: { createdAt: { $gte: monthStart } } },
-        { $group: { 
-          _id: null, 
-          totalSales: { $sum: "$Amount" }, 
-          count: { $sum: 1 } 
-        }}
+        {
+          $group: {
+            _id: null,
+            totalSales: { $sum: "$Amount" },
+            count: { $sum: 1 }
+          }
+        }
       ]),
-      
+
       // Last month's stats
       Transaction.aggregate([
-        { $match: { 
-          createdAt: { 
-            $gte: lastMonthStart, 
-            $lte: lastMonthEnd 
-          } 
-        }},
-        { $group: { 
-          _id: null, 
-          totalSales: { $sum: "$Amount" }, 
-          count: { $sum: 1 } 
-        }}
+        {
+          $match: {
+            createdAt: {
+              $gte: lastMonthStart,
+              $lte: lastMonthEnd
+            }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalSales: { $sum: "$Amount" },
+            count: { $sum: 1 }
+          }
+        }
       ]),
-      
+
       // OPTIMIZATION 3: Get payment methods breakdown in one query
       Transaction.aggregate([
-        { $group: { 
-          _id: { $ifNull: ["$method", "Other"] }, 
-          totalAmount: { $sum: "$Amount" } 
-        }},
-        { $project: {
-          _id: 0,
-          method: "$_id",
-          amount: "$totalAmount"
-        }}
+        {
+          $group: {
+            _id: { $ifNull: ["$method", "Other"] },
+            totalAmount: { $sum: "$Amount" }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            method: "$_id",
+            amount: "$totalAmount"
+          }
+        }
       ])
     ]);
 
     // OPTIMIZATION 4: Get daily and monthly chart data in single aggregation queries
     const [dailySalesChartData, monthlySalesChartData] = await Promise.all([
-      getDailySalesDataOptimized(), 
+      getDailySalesDataOptimized(),
       getMonthlySalesDataOptimized()
     ]);
 
@@ -1493,16 +1528,18 @@ router.get("/sales-dashboard", async (req, res) => {
     const monthSales = monthStats[0]?.totalSales || 0;
     const monthCount = monthStats[0]?.count || 0;
     const lastMonthSales = lastMonthStats[0]?.totalSales || 0;
-    
+
     // Get total stats (using another aggregation for accuracy)
     const allTimeStats = await Transaction.aggregate([
-      { $group: { 
-        _id: null, 
-        totalSales: { $sum: "$Amount" }, 
-        count: { $sum: 1 } 
-      }}
+      {
+        $group: {
+          _id: null,
+          totalSales: { $sum: "$Amount" },
+          count: { $sum: 1 }
+        }
+      }
     ]);
-    
+
     const allTimeSales = allTimeStats[0]?.totalSales || 0;
     const allTimeCount = allTimeStats[0]?.count || 0;
 
@@ -1559,14 +1596,14 @@ router.get("/sales-dashboard", async (req, res) => {
 async function getDailySalesDataOptimized() {
   const last7Days = [];
   const dailyData = [];
-  
+
   // Get today and 6 days ago date for query
   const today = new Date();
   today.setHours(23, 59, 59, 999);
   const startDate = new Date(today);
   startDate.setDate(today.getDate() - 6);
   startDate.setHours(0, 0, 0, 0);
-  
+
   // Prepare labels (these don't need to come from the database)
   for (let i = 6; i >= 0; i--) {
     const date = new Date();
@@ -1576,26 +1613,28 @@ async function getDailySalesDataOptimized() {
     // Initialize with zeros (will be filled if data exists)
     dailyData.push(0);
   }
-  
+
   // Single aggregate query to get daily sales totals
   const dailySalesResults = await Transaction.aggregate([
     { $match: { createdAt: { $gte: startDate, $lte: today } } },
-    { $group: {
-      _id: { 
-        $dateToString: { format: "%Y-%m-%d", date: "$createdAt" }
-      },
-      dailySales: { $sum: "$Amount" }
-    }},
+    {
+      $group: {
+        _id: {
+          $dateToString: { format: "%Y-%m-%d", date: "$createdAt" }
+        },
+        dailySales: { $sum: "$Amount" }
+      }
+    },
     { $sort: { _id: 1 } }
   ]);
-  
+
   // Map results to the correct days in our array
   dailySalesResults.forEach(day => {
     const date = new Date(day._id);
     const daysAgo = Math.floor((today - date) / (1000 * 60 * 60 * 24));
     if (daysAgo >= 0 && daysAgo < 7) {
       // Insert at the right position (6-daysAgo because our array is reversed)
-      dailyData[6-daysAgo] = day.dailySales;
+      dailyData[6 - daysAgo] = day.dailySales;
     }
   });
 
@@ -1608,18 +1647,18 @@ async function getDailySalesDataOptimized() {
 async function getMonthlySalesDataOptimized() {
   const last6Months = [];
   const monthlyData = [];
-  
+
   // Get current date for calculation
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
-  
+
   // Prepare date 6 months ago for query boundary
   const sixMonthsAgo = new Date(now);
   sixMonthsAgo.setMonth(now.getMonth() - 5);
   sixMonthsAgo.setDate(1);
   sixMonthsAgo.setHours(0, 0, 0, 0);
-  
+
   // Prepare labels and initialize data array
   for (let i = 5; i >= 0; i--) {
     const date = new Date(currentYear, currentMonth - i, 1);
@@ -1628,32 +1667,34 @@ async function getMonthlySalesDataOptimized() {
     // Initialize with zeros (will be filled if data exists)
     monthlyData.push(0);
   }
-  
+
   // Get monthly sales with a single aggregation query
   const monthlySalesResults = await Transaction.aggregate([
     { $match: { createdAt: { $gte: sixMonthsAgo } } },
-    { $group: {
-      _id: { 
-        year: { $year: "$createdAt" },
-        month: { $month: "$createdAt" } 
-      },
-      monthlySales: { $sum: "$Amount" }
-    }},
+    {
+      $group: {
+        _id: {
+          year: { $year: "$createdAt" },
+          month: { $month: "$createdAt" }
+        },
+        monthlySales: { $sum: "$Amount" }
+      }
+    },
     { $sort: { "_id.year": 1, "_id.month": 1 } }
   ]);
-  
+
   // Map results to the right position in our array
   monthlySalesResults.forEach(monthData => {
     const monthIndex = (currentMonth + 12 - monthData._id.month) % 12;
     const yearDiff = currentYear - monthData._id.year;
-    
+
     // Only include data from the last 6 months
     if (monthIndex < 6 && yearDiff <= 1) {
       // The position in our array (5-monthIndex because our array is in reverse order)
-      monthlyData[5-monthIndex] = monthData.monthlySales;
+      monthlyData[5 - monthIndex] = monthData.monthlySales;
     }
   });
-  
+
   return {
     labels: last6Months,
     data: monthlyData
@@ -1667,7 +1708,7 @@ router.get("/coupons", async (req, res) => {
   try {
     // Extract query parameters
     const { status, sortBy = "createdAt", sortOrder = "desc" } = req.query;
-    
+
     // Build filter object
     const filter = {};
     if (status && status !== 'all') filter.status = status;
@@ -1675,11 +1716,11 @@ router.get("/coupons", async (req, res) => {
     // Execute query with sort
     const coupons = await Coupon.find(filter)
       .sort({ [sortBy]: sortOrder === 'asc' ? 1 : -1 });
-    
+
     // Check if any coupons have expired
     const now = new Date();
     const updatedCoupons = [];
-    
+
     for (const coupon of coupons) {
       // Automatically update status if expired
       if (coupon.status === 'active' && coupon.expiresAt < now) {
@@ -1688,7 +1729,7 @@ router.get("/coupons", async (req, res) => {
       }
       updatedCoupons.push(coupon);
     }
-    
+
     return res.status(200).json({
       success: true,
       coupons: updatedCoupons
@@ -1707,21 +1748,21 @@ router.get("/coupons/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const coupon = await Coupon.findById(id);
-    
+
     if (!coupon) {
       return res.status(404).json({
         success: false,
         message: "Coupon not found"
       });
     }
-    
+
     // Check if expired and update status if needed
     const now = new Date();
     if (coupon.status === 'active' && coupon.expiresAt < now) {
       coupon.status = 'expired';
       await coupon.save();
     }
-    
+
     return res.status(200).json({
       success: true,
       coupon
@@ -1749,7 +1790,7 @@ router.post("/coupons", async (req, res) => {
       allowedProducts,
       minimumPurchase
     } = req.body;
-    
+
     // Validate required fields
     if (!code || !description || !discountType || discountAmount === undefined || !maxUsage || !expiresAt) {
       return res.status(400).json({
@@ -1757,7 +1798,7 @@ router.post("/coupons", async (req, res) => {
         message: "Required fields are missing"
       });
     }
-    
+
     // Check if coupon code already exists
     const existingCoupon = await Coupon.findOne({ code: code.toUpperCase() });
     if (existingCoupon) {
@@ -1766,7 +1807,7 @@ router.post("/coupons", async (req, res) => {
         message: "Coupon code already exists"
       });
     }
-    
+
     // Validate discount amount based on discount type
     if (discountType === 'percentage' && (discountAmount < 1 || discountAmount > 100)) {
       return res.status(400).json({
@@ -1779,7 +1820,7 @@ router.post("/coupons", async (req, res) => {
         message: "Fixed discount must be greater than 0"
       });
     }
-    
+
     const newCoupon = new Coupon({
       code,
       description,
@@ -1791,9 +1832,9 @@ router.post("/coupons", async (req, res) => {
       allowedProducts: allowedProducts || [],
       minimumPurchase: minimumPurchase || 0
     });
-    
+
     await newCoupon.save();
-    
+
     return res.status(201).json({
       success: true,
       message: "Coupon created successfully",
@@ -1824,7 +1865,7 @@ router.put("/coupons/:id", async (req, res) => {
       allowedProducts,
       minimumPurchase
     } = req.body;
-    
+
     // Find the coupon
     const coupon = await Coupon.findById(id);
     if (!coupon) {
@@ -1833,7 +1874,7 @@ router.put("/coupons/:id", async (req, res) => {
         message: "Coupon not found"
       });
     }
-    
+
     // If code is changed, check if it already exists
     if (code && code !== coupon.code) {
       const existingCoupon = await Coupon.findOne({ code: code.toUpperCase() });
@@ -1845,7 +1886,7 @@ router.put("/coupons/:id", async (req, res) => {
       }
       coupon.code = code;
     }
-    
+
     // Validate discount amount based on discount type if both are provided
     if (discountType && discountAmount !== undefined) {
       if (discountType === 'percentage' && (discountAmount < 1 || discountAmount > 100)) {
@@ -1873,7 +1914,7 @@ router.put("/coupons/:id", async (req, res) => {
         });
       }
     }
-    
+
     // Update fields if provided
     if (description !== undefined) coupon.description = description;
     if (discountType !== undefined) coupon.discountType = discountType;
@@ -1883,12 +1924,12 @@ router.put("/coupons/:id", async (req, res) => {
     if (status !== undefined) coupon.status = status;
     if (allowedProducts !== undefined) coupon.allowedProducts = allowedProducts;
     if (minimumPurchase !== undefined) coupon.minimumPurchase = minimumPurchase;
-    
+
     // Update the updated timestamp
     coupon.updatedAt = new Date();
-    
+
     await coupon.save();
-    
+
     return res.status(200).json({
       success: true,
       message: "Coupon updated successfully",
@@ -1908,7 +1949,7 @@ router.put("/coupons/:id", async (req, res) => {
 router.delete("/coupons/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const coupon = await Coupon.findById(id);
     if (!coupon) {
       return res.status(404).json({
@@ -1916,9 +1957,9 @@ router.delete("/coupons/:id", async (req, res) => {
         message: "Coupon not found"
       });
     }
-    
+
     await Coupon.findByIdAndDelete(id);
-    
+
     return res.status(200).json({
       success: true,
       message: "Coupon deleted successfully"
@@ -1936,7 +1977,7 @@ router.delete("/coupons/:id", async (req, res) => {
 router.patch("/coupons/:id/toggle-status", async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const coupon = await Coupon.findById(id);
     if (!coupon) {
       return res.status(404).json({
@@ -1944,7 +1985,7 @@ router.patch("/coupons/:id/toggle-status", async (req, res) => {
         message: "Coupon not found"
       });
     }
-    
+
     // Toggle between active and disabled
     if (coupon.status === 'active') {
       coupon.status = 'disabled';
@@ -1959,10 +2000,10 @@ router.patch("/coupons/:id/toggle-status", async (req, res) => {
         message: "Cannot change status of expired coupon"
       });
     }
-    
+
     coupon.updatedAt = new Date();
     await coupon.save();
-    
+
     return res.status(200).json({
       success: true,
       message: `Coupon ${coupon.status === 'active' ? 'enabled' : 'disabled'} successfully`,
@@ -1981,33 +2022,33 @@ router.patch("/coupons/:id/toggle-status", async (req, res) => {
 router.post("/coupons/validate", async (req, res) => {
   try {
     const { code, productIds = [], amount = 0 } = req.body;
-    
+
     if (!code) {
       return res.status(400).json({
         success: false,
         message: "Coupon code is required"
       });
     }
-    
+
     const coupon = await Coupon.findOne({ code: code.toUpperCase() });
-    
+
     if (!coupon) {
       return res.status(404).json({
         success: false,
         message: "Invalid coupon code"
       });
     }
-    
+
     // Check if coupon is active
     if (coupon.status !== 'active') {
       return res.status(400).json({
         success: false,
-        message: coupon.status === 'expired' ? 
-          "This coupon has expired" : 
+        message: coupon.status === 'expired' ?
+          "This coupon has expired" :
           "This coupon is not active"
       });
     }
-    
+
     // Check if coupon is expired
     if (coupon.expiresAt < new Date()) {
       coupon.status = 'expired';
@@ -2017,7 +2058,7 @@ router.post("/coupons/validate", async (req, res) => {
         message: "This coupon has expired"
       });
     }
-    
+
     // Check usage limit
     if (coupon.usageCount >= coupon.maxUsage) {
       return res.status(400).json({
@@ -2025,7 +2066,7 @@ router.post("/coupons/validate", async (req, res) => {
         message: "This coupon has reached its usage limit"
       });
     }
-    
+
     // Check minimum purchase
     if (amount < coupon.minimumPurchase) {
       return res.status(400).json({
@@ -2033,13 +2074,13 @@ router.post("/coupons/validate", async (req, res) => {
         message: `Minimum purchase amount is $${coupon.minimumPurchase}`
       });
     }
-    
+
     // Check product restrictions
     if (coupon.allowedProducts && coupon.allowedProducts.length > 0) {
-      const hasValidProduct = productIds.some(id => 
+      const hasValidProduct = productIds.some(id =>
         coupon.allowedProducts.includes(id)
       );
-      
+
       if (!hasValidProduct) {
         return res.status(400).json({
           success: false,
@@ -2047,12 +2088,12 @@ router.post("/coupons/validate", async (req, res) => {
         });
       }
     }
-    
+
     // Calculate discount
-    const discount = coupon.discountType === 'percentage' ? 
-      (amount * coupon.discountAmount / 100) : 
+    const discount = coupon.discountType === 'percentage' ?
+      (amount * coupon.discountAmount / 100) :
       Math.min(coupon.discountAmount, amount);
-    
+
     return res.status(200).json({
       success: true,
       message: "Coupon is valid",
@@ -2074,41 +2115,41 @@ router.get("/coupons/stats/summary", async (req, res) => {
   try {
     // Get total coupons
     const totalCoupons = await Coupon.countDocuments();
-    
+
     // Get active coupons
     const activeCoupons = await Coupon.countDocuments({ status: 'active' });
-    
+
     // Get highest discount
     const highestPercentageCoupon = await Coupon.findOne({ discountType: 'percentage' })
       .sort({ discountAmount: -1 })
       .limit(1);
-      
+
     const highestFixedCoupon = await Coupon.findOne({ discountType: 'fixed' })
       .sort({ discountAmount: -1 })
       .limit(1);
-    
+
     // Calculate highest discount
     let highestDiscount = '0%';
     if (highestPercentageCoupon && highestFixedCoupon) {
-      highestDiscount = highestPercentageCoupon.discountAmount > highestFixedCoupon.discountAmount / 100 * 100 ? 
-        `${highestPercentageCoupon.discountAmount}%` : 
+      highestDiscount = highestPercentageCoupon.discountAmount > highestFixedCoupon.discountAmount / 100 * 100 ?
+        `${highestPercentageCoupon.discountAmount}%` :
         `$${highestFixedCoupon.discountAmount}`;
     } else if (highestPercentageCoupon) {
       highestDiscount = `${highestPercentageCoupon.discountAmount}%`;
     } else if (highestFixedCoupon) {
       highestDiscount = `$${highestFixedCoupon.discountAmount}`;
     }
-    
+
     // Get coupons expiring soon (within 30 days)
     const now = new Date();
     const thirtyDaysFromNow = new Date(now);
     thirtyDaysFromNow.setDate(now.getDate() + 30);
-    
+
     const expiringSoon = await Coupon.countDocuments({
       status: 'active',
       expiresAt: { $gte: now, $lte: thirtyDaysFromNow }
     });
-    
+
     return res.status(200).json({
       success: true,
       stats: {
@@ -2130,13 +2171,13 @@ router.get("/coupons/stats/summary", async (req, res) => {
 router.get("/coupons/available-products", async (req, res) => {
   try {
     const plans = await Plan.find().select('_id name productId plans');
-    
+
     const formattedProducts = plans.map(plan => ({
       _id: plan._id,
       name: plan.name,
       productId: plan.productId
     }));
-    
+
     return res.status(200).json({
       success: true,
       products: formattedProducts
