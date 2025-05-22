@@ -189,7 +189,7 @@ router.post("/generate", async (req, res) => {
           console.log(proxyarr);
           if (proxyarr.length > 0) {
             // const proxyWorks = await testProxyConnection(proxyarr[0], port);
-            proxyWorks = true
+           const proxyWorks = true
             if (proxyWorks) {
               res.end(JSON.stringify({
                 success: true,
@@ -294,7 +294,7 @@ router.post("/generate_budget", async (req, res) => {
           if (proxyarr.length > 0) {
             // const proxyWorks = await testProxyConnection(proxyarr[0], port);
             console.log("Budget proxy working:", proxyWorks);
-            proxyWorks = true
+            const proxyWorks = true
             if (proxyWorks) {
               return res.status(200).json({
                 success: true,
