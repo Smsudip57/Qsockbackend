@@ -912,6 +912,7 @@ router.get("/get_starts", async (req, res) => {
     let premiumStat = { availableTraffic: 0, usedTraffic: 0 };
     const userfromdb = await User.findById(user._id);
     if (user?.BudgetResidentialCredentials?.id) {
+     try {
       const request = await axios.get(
         `https://api.digiproxy.cc/reseller/residential/sub-users/${user?.BudgetResidentialCredentials?.id}`,
         {
@@ -932,10 +933,14 @@ router.get("/get_starts", async (req, res) => {
           usedTraffic: request?.data?.usedTraffic,
         };
       }
+     } catch (error) {
+      console.log(error?.response?.data);
+     }
       
     }
-    // console.log(user?.ResidentialCredentials)
+
     if (user?.ResidentialCredentials?.id) {
+     try {
       const request = await axios.get(
         `https://api.digiproxy.cc/reseller/residential/sub-users/${user?.ResidentialCredentials?.id}`,
         {
@@ -956,6 +961,9 @@ router.get("/get_starts", async (req, res) => {
           usedTraffic: request?.data?.usedTraffic,
         };
       }
+     } catch (error) {
+      console.log(error?.response?.data);
+     }
     }
     userfromdb.save();
     return res.status(200).json({
@@ -964,7 +972,7 @@ router.get("/get_starts", async (req, res) => {
       premiumStat,
     });
   } catch (error) {
-    console.log(error.message)
+    console.log(error?.message);
     return res.status(500).json({
       success: false,
       message: "Something went wrong",
