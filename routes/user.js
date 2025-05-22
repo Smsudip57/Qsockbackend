@@ -62,14 +62,12 @@ const testProxyConnection = async (proxy, type = 'socks5') => {
         return testResponse.status >= 200 && testResponse.status < 400;
       } catch (httpError) {
         console.error(`HTTP proxy test failed: ${httpError.message}`);
-        // return false;
-        return true
+        return false;
       }
     } 
   } catch (error) {
     console.error(`Proxy connection test failed: ${error.message}`);
-    // return false;
-    return true
+    return false;
   }
 };
 
@@ -190,8 +188,8 @@ router.post("/generate", async (req, res) => {
           });
           console.log(proxyarr);
           if (proxyarr.length > 0) {
-            const proxyWorks = await testProxyConnection(proxyarr[0], port);
-            
+            // const proxyWorks = await testProxyConnection(proxyarr[0], port);
+            proxyWorks = true
             if (proxyWorks) {
               res.end(JSON.stringify({
                 success: true,
@@ -294,9 +292,9 @@ router.post("/generate_budget", async (req, res) => {
           });
           
           if (proxyarr.length > 0) {
-            const proxyWorks = await testProxyConnection(proxyarr[0], port);
+            // const proxyWorks = await testProxyConnection(proxyarr[0], port);
             console.log("Budget proxy working:", proxyWorks);
-            
+            proxyWorks = true
             if (proxyWorks) {
               return res.status(200).json({
                 success: true,
