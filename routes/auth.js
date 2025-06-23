@@ -302,6 +302,12 @@ router.post("/login", async (req, res) => {
         message: "Invalid email or password.",
       });
     }
+    if(user.isSuspended) {
+      return res.status(403).json({
+        success: false,
+        message: "Your account has been suspended.",
+      });
+    }
     user.password = undefined;
 
     const refreshtoken = jwt.sign(
@@ -890,6 +896,14 @@ router.get("/getuserinfo", async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Unauthorized",
+      });
+    }
+    if (user.isSuspended) {
+      res.clearCookie("refresh", { path: "/" });
+      res.clearCookie("access", { path: "/" });
+      return res.status(403).json({
+        success: false,
+        message: "Your account has been suspended",
       });
     }
     if (!access) {

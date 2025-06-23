@@ -843,7 +843,7 @@ async function getRecentActivity() {
     // Process transactions - since there's no user field, use OrderID
     const transactionActivities = recentTransactions.map(t => ({
       user: `Order #${t.OrderID.substring(0, 8)}`,
-      action: 'purchased',
+      action: t?.method,
       time: new Date(t.createdAt).toLocaleString(),
       amount: t.Amount,
       proxyType: null
