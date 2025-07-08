@@ -3,7 +3,7 @@ dotenv.config();
 const express = require("express");
 const dbConnect = require("./dbConnect/dbConnect"); // Import the database connection
 const auth = require("./routes/auth");
-// const chat = require('./routes/chatSession');
+const chat = require("./routes/chat");
 const payment = require("./routes/payment");
 const user = require("./routes/user");
 const admin = require("./routes/admin");
@@ -11,7 +11,7 @@ const { adminAuth, userAuth } = require("./middlewares/Auth");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3001;
 
 const http = require("http"); // Required to integrate Socket.IO
 const { Server } = require("socket.io"); // Import the Socket.IO server
@@ -38,7 +38,6 @@ app.use(express.static("public"));
 app.use(cookieParser());
 
 app.use((req, res, next) => {
-  console.log(`Path hit: ${req.originalUrl}`);
   next();
 });
 app.get("/", (req, res) => {
@@ -48,14 +47,12 @@ app.get("/", (req, res) => {
 app.use(express.json());
 
 app.use("/api", auth);
-// app.use('/api/chat', chat);
+app.use("/api/chat", chat);
 app.use("/api/user", userAuth, user);
 app.use("/api/admin", adminAuth, admin);
 app.use("/api", payment);
 
 app.use((req, res, next) => {
-  console.log(`Path hit: ${req.originalUrl}`);
-  console.log("This route does not exist!");
   res.status(404).send("This route does not exist!");
 });
 
