@@ -5,6 +5,7 @@ const User = require("../models/user");
 const crypto = require("crypto");
 const { adminAuth, userAuth } = require("../middlewares/Auth");
 const { default: axios } = require("axios");
+const EmailService = require("../services/emailService");
 const secretpassword = "myNameisSudipYouknowwhatareyoudoing";
 
 router.post("/payment", userAuth, async (req, res) => {
@@ -200,8 +201,26 @@ router.post("/payment/cryptomous_hook", async (req, res) => {
 
       const user = await User.findById(additionalData.userId);
       if (user) {
+        const oldBalance = user.balance;
         user.balance = (parseFloat(user.balance) || 0) + parseFloat(amount);
         await user.save();
+
+        // Send deposit confirmation email
+        try {
+          await EmailService.sendDepositConfirmation(user.email, {
+            amount: parseFloat(amount),
+            currency: 'USD',
+            orderId: order_id,
+            oldBalance: parseFloat(oldBalance),
+            newBalance: parseFloat(user.balance),
+            depositDate: new Date().toISOString(),
+            transactionId: transaction._id
+          });
+          console.log(`Deposit confirmation email sent to ${user.email}`);
+        } catch (emailError) {
+          console.error("Error sending deposit confirmation email:", emailError);
+          // Don't fail the transaction if email fails
+        }
       }
     }
 

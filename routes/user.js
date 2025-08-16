@@ -2,43 +2,45 @@ const express = require("express");
 const User = require("../models/user");
 const Plan = require("../models/plans");
 const History = require("../models/proxyhistory");
+const Coupon = require("../models/coupons");
 const router = express.Router();
 const axios = require("axios");
+const EmailService = require("../services/emailService");
 
 
 const testProxyConnection = async (proxy, type = 'socks5') => {
   try {
     const [host, port, username, password] = proxy.split(':');
-    
+
     console.log(`Testing ${type.toUpperCase()} proxy connection to ${host}:${port}`);
-    
+
     if (type.toLowerCase() === 'socks5') {
       try {
         const { SocksProxyAgent } = require('socks-proxy-agent');
-        
+
         // Create a SOCKS proxy agent
         const socksAgent = new SocksProxyAgent(`socks5://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}`);
-        
+
         // Test connection with a longer timeout
         const testResponse = await axios.get('https://api.ipify.org?format=json', {
           httpsAgent: socksAgent,
           timeout: 15000
         });
-        
+
         console.log(`SOCKS5 proxy test response: ${testResponse.status}, IP: ${testResponse.data.ip}`);
         return testResponse.status === 200;
       } catch (socksError) {
         console.error(`SOCKS5 proxy test failed: ${socksError.message}`);
-        
+
         // If specific errors that suggest the proxy exists but rejects test connections
-        if (socksError.message.includes('NotAllowed') || 
-            socksError.message.includes('rejected')) {
+        if (socksError.message.includes('NotAllowed') ||
+          socksError.message.includes('rejected')) {
           console.log('Proxy appears to exist but test access is restricted. Bypassing.');
           return true;
         }
         return false;
       }
-    } else  {
+    } else {
       try {
         const proxyConfig = {
           host: host,
@@ -57,14 +59,14 @@ const testProxyConnection = async (proxy, type = 'socks5') => {
             return status >= 200 && status < 600;
           }
         });
-        
+
         console.log(`HTTP proxy test response: ${testResponse.status}, IP: ${testResponse.data.ip}`);
         return testResponse.status >= 200 && testResponse.status < 400;
       } catch (httpError) {
         console.error(`HTTP proxy test failed: ${httpError.message}`);
         return false;
       }
-    } 
+    }
   } catch (error) {
     console.error(`Proxy connection test failed: ${error.message}`);
     return false;
@@ -157,7 +159,7 @@ router.post("/generate", async (req, res) => {
     const user = req?.user;
     if (user?.ResidentialCredentials?.availableTraffic > 0) {
       const { country, state, city, quantity, rotation, port } = req.body;
-      const location = `${country}_${state || ""}_${city|| ""}`;
+      const location = `${country}_${state || ""}_${city || ""}`;
       try {
         const response = await axios.post(
           "https://api.digiproxy.cc/reseller/products/presidential/generate",
@@ -189,13 +191,32 @@ router.post("/generate", async (req, res) => {
           console.log(proxyarr);
           if (proxyarr.length > 0) {
             // const proxyWorks = await testProxyConnection(proxyarr[0], port);
-           const proxyWorks = true
+            const proxyWorks = true
             if (proxyWorks) {
+              // Save each generated proxy to database
+              const userfromdb = await User.findById(user._id);
+              const historyEntries = [];
+              const savePromises = proxyarr.map(async (proxy) => {
+                const historyEntry = new History({
+                  user: userfromdb._id,
+                  type: "Premium Residential Proxies",
+                  plan: {
+                    id: `${rotation === "random" ? "Random Session" : "Sticky Session"} - ${port === "socks5" ? "Socks5" : "Http/s"}`,
+                  },
+                  order_id: `premium_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                  proxy: proxy,
+                });
+                const savedEntry = await historyEntry.save();
+                historyEntries.push(savedEntry);
+              });
+              await Promise.all(savePromises);
+
               res.end(JSON.stringify({
                 success: true,
                 message: "Residential proxies generated successfully",
                 proxies: proxyarr,
-                status: "success"
+                status: "success",
+                historyEntries: historyEntries.map((entry) => entry.toObject())
               }));
             } else {
               res.end(JSON.stringify({
@@ -290,17 +311,36 @@ router.post("/generate_budget", async (req, res) => {
               return `residential.qsocks.net:${item?.port}:${item?.user}:${item?.pass}`;
             }
           });
-          
+
           if (proxyarr.length > 0) {
             // const proxyWorks = await testProxyConnection(proxyarr[0], port);
             // console.log("Budget proxy working:", proxyWorks);
             const proxyWorks = true
             if (proxyWorks) {
+              // Save each generated proxy to database
+              const userfromdb = await User.findById(user._id);
+              const historyEntries = [];
+              const savePromises = proxyarr.map(async (proxy) => {
+                const historyEntry = new History({
+                  user: userfromdb._id,
+                  type: "Budget Residential Proxies",
+                  plan: {
+                    id: `${rotation === "random" ? "Random Session" : `${lifetime || 15} min Sticky Session`} - ${port === "socks5" ? "Socks5" : "Http/s"}`,
+                  },
+                  order_id: `budget_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                  proxy: proxy,
+                });
+                const savedEntry = await historyEntry.save();
+                historyEntries.push(savedEntry);
+              });
+              await Promise.all(savePromises);
+
               return res.status(200).json({
                 success: true,
                 message: "Residential proxies generated successfully",
                 proxies: proxyarr,
-                status: "success"
+                status: "success",
+                historyEntries: historyEntries.map((entry) => entry.toObject())
               });
             } else {
               return res.status(400).json({
@@ -439,7 +479,7 @@ router.get("/server_credentials", async (req, res) => {
 router.post("/get_proxy", async (req, res) => {
   try {
     const url = "https://api.digiproxy.cc/reseller/payments/purchase";
-    const { type, country, state, city, location, plan, quantity } = req.body;
+    const { type, country, state, city, location, plan, quantity, couponCode, protocol } = req.body;
     const user = req?.user;
     if (!type) {
       return res.status(400).json({
@@ -464,8 +504,90 @@ router.post("/get_proxy", async (req, res) => {
           message: "Not available",
         });
       }
-      const price = targetplan.plans[0].price;
-      if (user?.balance < price) {
+
+      let finalPrice = targetplan.plans[0].price;
+      let discount = 0;
+      let couponUsed = null;
+
+      // Handle coupon validation and discount calculation
+      if (couponCode && couponCode.trim()) {
+        try {
+          const coupon = await Coupon.findOne({ code: couponCode.trim().toUpperCase() });
+
+          if (!coupon) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid coupon code",
+            });
+          }
+
+          // Check if coupon is active
+          if (coupon.status !== 'active') {
+            return res.status(400).json({
+              success: false,
+              message: coupon.status === 'expired' ?
+                "This coupon has expired" :
+                "This coupon is not active",
+            });
+          }
+
+          // Check if coupon is expired
+          if (coupon.expiresAt < new Date()) {
+            coupon.status = 'expired';
+            await coupon.save();
+            return res.status(400).json({
+              success: false,
+              message: "This coupon has expired",
+            });
+          }
+
+          // Check usage limit
+          if (coupon.usageCount >= coupon.maxUsage) {
+            return res.status(400).json({
+              success: false,
+              message: "This coupon has reached its usage limit",
+            });
+          }
+
+          // Check minimum purchase
+          if (targetplan.plans[0].price < coupon.minimumPurchase) {
+            return res.status(400).json({
+              success: false,
+              message: `Minimum purchase amount is $${coupon.minimumPurchase}`,
+            });
+          }
+
+          // Check product restrictions (if allowedProducts is specified)
+          if (coupon.allowedProducts && coupon.allowedProducts.length > 0) {
+            const hasValidProduct = coupon.allowedProducts.includes(targetplan._id);
+
+            if (!hasValidProduct) {
+              return res.status(400).json({
+                success: false,
+                message: "This coupon is not valid for selected products",
+              });
+            }
+          }
+
+          // Calculate discount
+          discount = coupon.discountType === 'percentage' ?
+            (targetplan.plans[0].price * coupon.discountAmount / 100) :
+            Math.min(coupon.discountAmount, targetplan.plans[0].price);
+
+          finalPrice = Math.max(0, targetplan.plans[0].price - discount);
+          couponUsed = coupon;
+
+        } catch (couponError) {
+          console.error("Coupon validation error:", couponError);
+          return res.status(400).json({
+            success: false,
+            message: "Error validating coupon",
+          });
+        }
+      }
+
+      // Check if user has sufficient balance for final price
+      if (user?.balance < finalPrice) {
         return res.status(400).json({
           success: false,
           message: "Insufficient balance",
@@ -495,7 +617,14 @@ router.post("/get_proxy", async (req, res) => {
             message: "Something went wrong",
           });
         }
-        userfromdb.balance = userfromdb.balance - price;
+        userfromdb.balance = Number((userfromdb.balance - finalPrice).toFixed(2));
+
+        // Increment coupon usage if coupon was used
+        if (couponUsed) {
+          couponUsed.usageCount += 1;
+          await couponUsed.save();
+        }
+
         userfromdb.save();
 
         const getOrderInfo = await axios.get(
@@ -512,7 +641,7 @@ router.post("/get_proxy", async (req, res) => {
           const historyEntry = new History({
             user: userfromdb._id,
             plan: {
-              id: "24H"
+              id: `24H - ${location.protocol || 'SOCKS5'}`
             },
             type: "LTE Mobile Proxies",
             order_id: response?.data?.order_id,
@@ -562,8 +691,91 @@ router.post("/get_proxy", async (req, res) => {
           message: "Invalid plan",
         });
       }
-      const price = targetPlan.price * quantity;
-      if (user?.balance < price) {
+
+      let basePrice = targetPlan.price * quantity;
+      let finalPrice = basePrice;
+      let discount = 0;
+      let couponUsed = null;
+
+      // Handle coupon validation and discount calculation
+      if (couponCode && couponCode.trim()) {
+        try {
+          const coupon = await Coupon.findOne({ code: couponCode.trim().toUpperCase() });
+
+          if (!coupon) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid coupon code",
+            });
+          }
+
+          // Check if coupon is active
+          if (coupon.status !== 'active') {
+            return res.status(400).json({
+              success: false,
+              message: coupon.status === 'expired' ?
+                "This coupon has expired" :
+                "This coupon is not active",
+            });
+          }
+
+          // Check if coupon is expired
+          if (coupon.expiresAt < new Date()) {
+            coupon.status = 'expired';
+            await coupon.save();
+            return res.status(400).json({
+              success: false,
+              message: "This coupon has expired",
+            });
+          }
+
+          // Check usage limit
+          if (coupon.usageCount >= coupon.maxUsage) {
+            return res.status(400).json({
+              success: false,
+              message: "This coupon has reached its usage limit",
+            });
+          }
+
+          // Check minimum purchase
+          if (basePrice < coupon.minimumPurchase) {
+            return res.status(400).json({
+              success: false,
+              message: `Minimum purchase amount is $${coupon.minimumPurchase}`,
+            });
+          }
+
+          // Check product restrictions (if allowedProducts is specified)
+          if (coupon.allowedProducts && coupon.allowedProducts.length > 0) {
+            const hasValidProduct = coupon.allowedProducts.includes(mainPlan._id);
+
+            if (!hasValidProduct) {
+              return res.status(400).json({
+                success: false,
+                message: "This coupon is not valid for selected products",
+              });
+            }
+          }
+
+          // Calculate discount
+          discount = coupon.discountType === 'percentage' ?
+            (basePrice * coupon.discountAmount / 100) :
+            Math.min(coupon.discountAmount, basePrice);
+
+          finalPrice = Math.max(0, basePrice - discount);
+          couponUsed = coupon;
+
+        } catch (couponError) {
+          console.error("Coupon validation error:", couponError);
+          return res.status(400).json({
+            success: false,
+            message: "Error validating coupon",
+          });
+        }
+      }
+
+      // Check if user has sufficient balance for final price
+      if (user?.balance < finalPrice) {
         return res.status(400).json({
           success: false,
           message: "Insufficient balance",
@@ -574,7 +786,7 @@ router.post("/get_proxy", async (req, res) => {
         ipVersion: "IPv4",
         country: country,
         isp: location,
-        proxyProtocol: "SOCKS5",
+        proxyProtocol: protocol === "Http/s" ? "HTTPS" : "SOCKS5",
         authenticationType: "USERNAME_PASSWORD",
         quantity: quantity,
         couponCode: "",
@@ -642,8 +854,15 @@ router.post("/get_proxy", async (req, res) => {
           });
         }
         userfromdb.balance = Number(
-          (userfromdb.balance - price * quantity).toFixed(2)
+          (userfromdb.balance - finalPrice).toFixed(2)
         );
+
+        // Increment coupon usage if coupon was used
+        if (couponUsed) {
+          couponUsed.usageCount += 1;
+          await couponUsed.save();
+        }
+
         userfromdb.save();
         const getOrderInfo = await axios.get(
           `https://api.proxy-cheap.com/orders/${response?.data?.id}/proxies`,
@@ -672,7 +891,7 @@ router.post("/get_proxy", async (req, res) => {
                 user: userfromdb._id,
                 type: type,
                 plan: {
-                  id: getValidityPeriod(plan),
+                  id: `${getValidityPeriod(plan)} - ${payload.proxyProtocol}`,
                 },
                 order_id: response?.data?.id,
                 // order_id: "84b357d1-0fcf-11f0-8647-0204b4dab599",
@@ -722,8 +941,9 @@ router.post("/get_proxy", async (req, res) => {
 
 router.post("/get_plan", async (req, res) => {
   try {
-    const { type, amount } = req.body;
+    const { type, amount, couponCode } = req.body;
     const user = req?.user;
+
     if (
       !type ||
       !["Premium Residential Proxies", "Budget Residential Proxies"].includes(
@@ -738,15 +958,18 @@ router.post("/get_plan", async (req, res) => {
         message: "Invalid plan type",
       });
     }
+
     const targetPlans = await Plan.findOne({
       name: type,
     });
+
     if (!targetPlans) {
       return res.status(400).json({
         success: false,
         message: "Invalid plan type",
       });
     }
+
     const plan = targetPlans.plans?.find((p) => p.amount === amount);
     if (!plan) {
       return res.status(400).json({
@@ -754,12 +977,96 @@ router.post("/get_plan", async (req, res) => {
         message: "Invalid plan!",
       });
     }
-    if (user?.balance < plan.price) {
+
+    let finalPrice = plan.price;
+    let discount = 0;
+    let couponUsed = null;
+
+    // Handle coupon validation and discount calculation
+    if (couponCode && couponCode.trim()) {
+      try {
+        const coupon = await Coupon.findOne({ code: couponCode.trim().toUpperCase() });
+
+        if (!coupon) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid coupon code",
+          });
+        }
+
+        // Check if coupon is active
+        if (coupon.status !== 'active') {
+          return res.status(400).json({
+            success: false,
+            message: coupon.status === 'expired' ?
+              "This coupon has expired" :
+              "This coupon is not active",
+          });
+        }
+
+        // Check if coupon is expired
+        if (coupon.expiresAt < new Date()) {
+          coupon.status = 'expired';
+          await coupon.save();
+          return res.status(400).json({
+            success: false,
+            message: "This coupon has expired",
+          });
+        }
+
+        // Check usage limit
+        if (coupon.usageCount >= coupon.maxUsage) {
+          return res.status(400).json({
+            success: false,
+            message: "This coupon has reached its usage limit",
+          });
+        }
+
+        // Check minimum purchase
+        if (plan.price < coupon.minimumPurchase) {
+          return res.status(400).json({
+            success: false,
+            message: `Minimum purchase amount is $${coupon.minimumPurchase}`,
+          });
+        }
+
+        // Check product restrictions (if allowedProducts is specified)
+        if (coupon.allowedProducts && coupon.allowedProducts.length > 0) {
+          const hasValidProduct = coupon.allowedProducts.includes(targetPlans._id);
+
+          if (!hasValidProduct) {
+            return res.status(400).json({
+              success: false,
+              message: "This coupon is not valid for selected products",
+            });
+          }
+        }
+
+        // Calculate discount
+        discount = coupon.discountType === 'percentage' ?
+          (plan.price * coupon.discountAmount / 100) :
+          Math.min(coupon.discountAmount, plan.price);
+
+        finalPrice = Math.max(0, plan.price - discount);
+        couponUsed = coupon;
+
+      } catch (couponError) {
+        console.error("Coupon validation error:", couponError);
+        return res.status(400).json({
+          success: false,
+          message: "Error validating coupon",
+        });
+      }
+    }
+
+    // Check if user has sufficient balance for final price
+    if (user?.balance < finalPrice) {
       return res.status(400).json({
         success: false,
         message: "Insufficient balance",
       });
     }
+
     const credentials =
       type === "Premium Residential Proxies"
         ? user?.ResidentialCredentials?.id
@@ -774,7 +1081,9 @@ router.post("/get_plan", async (req, res) => {
         ? `https://api.digiproxy.cc/reseller/presidential/sub-users/${id}/traffic/give`
         : `https://api.digiproxy.cc/reseller/budget-residential/sub-users/${id}/traffic/give`;
     };
+
     const userfromdb = await User.findById(user._id);
+
     if (!credentials) {
       const response = await axios.post(
         url,
@@ -835,9 +1144,37 @@ router.post("/get_plan", async (req, res) => {
             };
           }
           userfromdb.balance = Number(
-            (userfromdb.balance - plan.price).toFixed(2)
+            (userfromdb.balance - finalPrice).toFixed(2)
           );
+
+          // Increment coupon usage if coupon was used
+          if (couponUsed) {
+            couponUsed.usageCount += 1;
+            await couponUsed.save();
+          }
+
           userfromdb.save();
+
+          // Send purchase confirmation email
+          try {
+            await EmailService.sendPurchaseConfirmation(user.email, {
+              planType: type,
+              planName: plan.name || `${amount}GB Traffic`,
+              amount: parseFloat(finalPrice),
+              originalAmount: parseFloat(plan.price),
+              discount: parseFloat(discount),
+              couponCode: couponUsed ? couponUsed.code : null,
+              oldBalance: parseFloat(user.balance),
+              newBalance: parseFloat(userfromdb.balance),
+              purchaseDate: new Date().toISOString(),
+              trafficAmount: amount
+            });
+            console.log(`Purchase confirmation email sent to ${user.email}`);
+          } catch (emailError) {
+            console.error("Error sending purchase confirmation email:", emailError);
+            // Don't fail the transaction if email fails
+          }
+
           return res.status(200).json({
             success: true,
             message: "Plan purchased successfully",
@@ -891,6 +1228,29 @@ router.post("/get_plan", async (req, res) => {
           (userfromdb.balance - plan.price).toFixed(2)
         );
         userfromdb.save();
+
+        // Send purchase confirmation email
+        try {
+          await EmailService.sendPurchaseConfirmation(userfromdb.email, {
+            planName: plan.name,
+            planType: plan.type,
+            amount: plan.price,
+            currency: 'USD',
+            purchaseDate: new Date().toISOString(),
+            orderId: `PUR${Date.now()}`,
+            oldBalance: Number((userfromdb.balance + plan.price).toFixed(2)),
+            newBalance: userfromdb.balance,
+            planDetails: {
+              duration: plan.id,
+              traffic: amount + 'GB'
+            }
+          });
+          console.log(`Purchase confirmation email sent to ${userfromdb.email}`);
+        } catch (emailError) {
+          console.error("Error sending purchase confirmation email:", emailError);
+          // Don't fail the transaction if email fails
+        }
+
         return res.status(200).json({
           success: true,
           message: "Plan purchased successfully",
@@ -913,58 +1273,58 @@ router.get("/get_starts", async (req, res) => {
     let premiumStat = { availableTraffic: 0, usedTraffic: 0 };
     const userfromdb = await User.findById(user._id);
     if (user?.BudgetResidentialCredentials?.id) {
-     try {
-      const request = await axios.get(
-        `https://api.digiproxy.cc/reseller/residential/sub-users/${user?.BudgetResidentialCredentials?.id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.Key}`,
-            "Content-Type": "application/json",
-          },
+      try {
+        const request = await axios.get(
+          `https://api.digiproxy.cc/reseller/residential/sub-users/${user?.BudgetResidentialCredentials?.id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.Key}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+        if (request?.data && !request?.data?.error) {
+          budgetStat = {
+            availableTraffic: request?.data?.availableTraffic,
+            usedTraffic: request?.data?.usedTraffic,
+          };
+          userfromdb.BudgetResidentialCredentials = {
+            ...userfromdb.BudgetResidentialCredentials,
+            availableTraffic: request?.data?.availableTraffic,
+            usedTraffic: request?.data?.usedTraffic,
+          };
         }
-      );
-      if (request?.data && !request?.data?.error) {
-        budgetStat = {
-          availableTraffic: request?.data?.availableTraffic,
-          usedTraffic: request?.data?.usedTraffic,
-        };
-        userfromdb.BudgetResidentialCredentials = {
-          ...userfromdb.BudgetResidentialCredentials,
-          availableTraffic: request?.data?.availableTraffic,
-          usedTraffic: request?.data?.usedTraffic,
-        };
+      } catch (error) {
+        console.log(error?.response?.data);
       }
-     } catch (error) {
-      console.log(error?.response?.data);
-     }
-      
+
     }
 
     if (user?.ResidentialCredentials?.id) {
-     try {
-      const request = await axios.get(
-        `https://api.digiproxy.cc/reseller/residential/sub-users/${user?.ResidentialCredentials?.id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.Key}`,
-            "Content-Type": "application/json",
-          },
+      try {
+        const request = await axios.get(
+          `https://api.digiproxy.cc/reseller/residential/sub-users/${user?.ResidentialCredentials?.id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.Key}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+        if (request?.data && !request?.data?.error) {
+          premiumStat = {
+            availableTraffic: request?.data?.availableTraffic,
+            usedTraffic: request?.data?.usedTraffic,
+          };
+          userfromdb.ResidentialCredentials = {
+            ...userfromdb.ResidentialCredentials,
+            availableTraffic: request?.data?.availableTraffic,
+            usedTraffic: request?.data?.usedTraffic,
+          };
         }
-      );
-      if (request?.data && !request?.data?.error) {
-        premiumStat = {
-          availableTraffic: request?.data?.availableTraffic,
-          usedTraffic: request?.data?.usedTraffic,
-        };
-        userfromdb.ResidentialCredentials = {
-          ...userfromdb.ResidentialCredentials,
-          availableTraffic: request?.data?.availableTraffic,
-          usedTraffic: request?.data?.usedTraffic,
-        };
+      } catch (error) {
+        console.log(error?.response?.data);
       }
-     } catch (error) {
-      console.log(error?.response?.data);
-     }
     }
     userfromdb.save();
     return res.status(200).json({

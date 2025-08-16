@@ -7,6 +7,308 @@ const Transaction = require("../models/transactions");
 const History = require("../models/proxyhistory");
 const bcrypt = require("bcrypt");
 const Coupon = require("../models/coupons");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+const EmailService = require("../services/emailService");
+
+// Configure multer for avatar uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, '../public/avatars');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'avatar-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: function (req, file, cb) {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed!'), false);
+    }
+  }
+});
+
+// Admin Settings APIs
+
+// Upload avatar
+router.post("/upload-avatar", upload.single('avatar'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No file uploaded"
+      });
+    }
+
+    const avatarUrl = `${process.env.Current_Url}/avatars/${req.file.filename}`;
+
+    return res.status(200).json({
+      success: true,
+      message: "Avatar uploaded successfully",
+      avatarUrl: avatarUrl
+    });
+  } catch (error) {
+    console.error("Error uploading avatar:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error uploading avatar"
+    });
+  }
+});
+
+// Update admin profile
+router.put("/profile", async (req, res) => {
+  try {
+    const { name, email, avatarUrl } = req.body;
+    const userId = req.user._id;
+
+    // Validate required fields
+    if (!name || !email) {
+      return res.status(400).json({
+        success: false,
+        message: "Name and email are required"
+      });
+    }
+
+    // Check if email is already taken by another user
+    const existingUser = await User.findOne({
+      email: email.toLowerCase(),
+      _id: { $ne: userId }
+    });
+
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is already taken"
+      });
+    }
+
+    // Update user profile
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      {
+        email: email.toLowerCase(),
+        'profile.name': name,
+        'profile.avatarUrl': avatarUrl || 'https://default-avatar-url.com'
+      },
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      user: updatedUser
+    });
+  } catch (error) {
+    console.error("Error updating profile:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error updating profile"
+    });
+  }
+});
+
+// Change admin password
+router.post("/change-password", async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const userId = req.user._id;
+
+    // Validate required fields
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Current password and new password are required"
+      });
+    }
+
+    // Validate new password length
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be at least 6 characters long"
+      });
+    }
+
+    // Get user with password
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isCurrentPasswordValid) {
+      return res.status(400).json({
+        success: false,
+        message: "Current password is incorrect"
+      });
+    }
+
+    // Hash new password
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password
+    await User.findByIdAndUpdate(userId, {
+      password: hashedNewPassword
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Password changed successfully"
+    });
+  } catch (error) {
+    console.error("Error changing password:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error changing password"
+    });
+  }
+});
+
+// Change user password (admin action)
+router.post("/users/change-password", async (req, res) => {
+  try {
+    const { userId, newPassword } = req.body;
+
+    // Validate required fields
+    if (!userId || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID and new password are required"
+      });
+    }
+
+    // Validate new password length
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be at least 6 characters long"
+      });
+    }
+
+    // Check if user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // Prevent changing password of protected admin users (unless done by super admin)
+    const protectedEmails = ['guido36997@gmail.com', 'sudip7981@gmail.com'];
+    const isSuperAdmin = protectedEmails.includes(req.user.email);
+
+    if (protectedEmails.includes(user.email) && !isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Cannot change password of this protected admin user"
+      });
+    }
+
+    // Hash new password
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password
+    await User.findByIdAndUpdate(userId, {
+      password: hashedNewPassword
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Password changed successfully for ${user.email}`
+    });
+  } catch (error) {
+    console.error("Error changing user password:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error changing user password"
+    });
+  }
+});
+
+// Change user role (admin action)
+router.post("/users/change-role", async (req, res) => {
+  try {
+    const { userId, newRole } = req.body;
+
+    // Validate required fields
+    if (!userId || !newRole) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID and new role are required"
+      });
+    }
+
+    // Validate role
+    if (!['user', 'admin'].includes(newRole)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid role. Must be 'user' or 'admin'"
+      });
+    }
+
+    // Check if user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // Prevent changing role of protected admin users (unless done by super admin)
+    const protectedEmails = ['guido36997@gmail.com', 'sudip7981@gmail.com'];
+    const isSuperAdmin = protectedEmails.includes(req.user.email);
+
+    if (protectedEmails.includes(user.email) && !isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Cannot change role of this protected admin user"
+      });
+    }
+
+    // Update role
+    await User.findByIdAndUpdate(userId, {
+      role: newRole
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Role changed to ${newRole} for ${user.email}`
+    });
+  } catch (error) {
+    console.error("Error changing user role:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error changing user role"
+    });
+  }
+});
 
 router.get("/plan_info", async (req, res) => {
   try {
@@ -871,40 +1173,28 @@ async function getRecentActivity() {
 }
 
 
-router.get("/users", async (req, res) => {
+// User search route - MUST be before /users/:userId route
+router.get("/users/search", async (req, res) => {
   try {
-    // Extract query parameters
-    const {
-      page = 1,
-      limit = 10,
-      sortBy = "createdAt",
-      sortOrder = "desc",
-      role,
-      status,
-      search
-    } = req.query;
+    const { q } = req.query;
 
-    // Build filter object
-    const filter = {};
-    if (role && role !== 'all') filter.role = role;
-    if (status && status !== 'all') filter.status = status;
-
-    // Add search functionality
-    if (search) {
-      filter.$or = [
-        { email: { $regex: search, $options: 'i' } },
-        { name: { $regex: search, $options: 'i' } }
-      ];
+    if (!q || q.length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: "Search query must be at least 2 characters long"
+      });
     }
 
-    // Count total matching users for pagination
-    const totalUsers = await User.countDocuments(filter);
+    // Build search filter
+    const filter = {
+      $or: [
+        { email: { $regex: q, $options: 'i' } },
+        { 'profile.name': { $regex: q, $options: 'i' } }
+      ]
+    };
 
-    // Execute query with sort and pagination
-    const users = await User.find(filter)
-      .sort({ [sortBy]: sortOrder === 'asc' ? 1 : -1 })
-      .skip((page - 1) * parseInt(limit))
-      .limit(parseInt(limit));
+    // Find matching users (limit to reasonable amount)
+    const users = await User.find(filter).select('-password').limit(25);
 
     // Enhance user data with spending info
     const usersWithSpending = await Promise.all(users.map(async (user) => {
@@ -920,18 +1210,13 @@ router.get("/users", async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      users: usersWithSpending,
-      pagination: {
-        total: totalUsers,
-        page: parseInt(page),
-        pages: Math.ceil(totalUsers / parseInt(limit))
-      }
+      users: usersWithSpending
     });
   } catch (error) {
-    console.error("Error fetching users:", error);
+    console.error("Error searching users:", error);
     return res.status(500).json({
       success: false,
-      message: "Error fetching users"
+      message: "Error searching users"
     });
   }
 });
@@ -956,7 +1241,6 @@ router.get("/users/:userId", async (req, res) => {
 
     // Get user's proxies
     const proxies = await History.find({ user: userId }).sort({ createdAt: -1 });
-
     return res.status(200).json({
       success: true,
       user: {
@@ -1204,6 +1488,8 @@ router.post("/users/:userId/add-balance", async (req, res) => {
 
     let msg
     let transaction = null;
+    const oldBalance = user.balance;
+    
     if (note.includes("add")) {
       user.balance += parseFloat(amount);
       msg = `$${amount} added to user balance successfully`
@@ -1225,6 +1511,25 @@ router.post("/users/:userId/add-balance", async (req, res) => {
     }
     await user.save();
 
+    // Send balance update email notification
+    try {
+      await EmailService.sendBalanceUpdate(user.email, {
+        type: note.includes("add") ? "credit" : "debit",
+        amount: parseFloat(amount),
+        oldBalance: parseFloat(oldBalance),
+        newBalance: parseFloat(user.balance),
+        reason: note.includes("add") ? "Admin Credit" : "Admin Debit",
+        adminAction: true,
+        recordTransaction: note !== "add_without_record",
+        transactionId: transaction ? transaction._id : null,
+        updateDate: new Date().toISOString()
+      });
+      console.log(`Balance update email sent to ${user.email}`);
+    } catch (emailError) {
+      console.error("Error sending balance update email:", emailError);
+      // Don't fail the transaction if email fails
+    }
+
 
     return res.status(200).json({
       success: true,
@@ -1241,28 +1546,78 @@ router.post("/users/:userId/add-balance", async (req, res) => {
   }
 });
 
-
-router.get("/users/search", async (req, res) => {
+// Get all users with pagination, sorting, and filtering
+router.get("/users", async (req, res) => {
   try {
-    const { q } = req.query;
+    const {
+      page = 1,
+      limit = 10,
+      search = '',
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+      role = 'all',
+      status = 'all'
+    } = req.query;
 
-    if (!q || q.length < 2) {
-      return res.status(400).json({
-        success: false,
-        message: "Search query must be at least 2 characters long"
-      });
+    const pageNumber = parseInt(page);
+    const limitNumber = parseInt(limit);
+    const skip = (pageNumber - 1) * limitNumber;
+
+    // Build filter
+    let filter = {};
+
+    // Search filter
+    if (search) {
+      filter = {
+        $or: [
+          { email: { $regex: search, $options: 'i' } },
+          { 'profile.name': { $regex: search, $options: 'i' } }
+        ]
+      };
     }
 
-    // Build search filter
-    const filter = {
-      $or: [
-        { email: { $regex: q, $options: 'i' } },
-        { name: { $regex: q, $options: 'i' } }
-      ]
-    };
+    // Role filter
+    if (role !== 'all') {
+      filter.role = role;
+    }
 
-    // Find matching users (limit to reasonable amount)
-    const users = await User.find(filter).limit(25);
+    // Status filter
+    if (status !== 'all') {
+      if (status === 'active') {
+        filter.isActive = true;
+        filter.isSuspended = { $ne: true };
+      } else if (status === 'suspended') {
+        filter.isSuspended = true;
+      } else if (status === 'inactive') {
+        filter.isActive = false;
+        filter.isSuspended = { $ne: true };
+      }
+    }
+
+    // Build sort object
+    let sortObj = {};
+    const validSortFields = ['email', 'balance', 'totalSpent', 'createdAt', 'role', 'isActive'];
+
+    if (validSortFields.includes(sortBy)) {
+      if (sortBy === 'totalSpent') {
+        // For totalSpent, we'll handle this after aggregation
+        sortObj = { createdAt: sortOrder === 'desc' ? -1 : 1 };
+      } else {
+        sortObj[sortBy] = sortOrder === 'desc' ? -1 : 1;
+      }
+    } else {
+      sortObj = { createdAt: -1 };
+    }
+
+    // Get users with pagination
+    const users = await User.find(filter)
+      .select('-password')
+      .sort(sortObj)
+      .skip(skip)
+      .limit(limitNumber);
+
+    // Get total count for pagination
+    const total = await User.countDocuments(filter);
 
     // Enhance user data with spending info
     const usersWithSpending = await Promise.all(users.map(async (user) => {
@@ -1270,24 +1625,50 @@ router.get("/users/search", async (req, res) => {
       const transactions = await Transaction.find({ user: user._id });
       const totalSpent = transactions.reduce((sum, tx) => sum + tx.Amount, 0);
 
+      // Get proxy count
+      const proxiesCount = await History.countDocuments({ user: user._id });
+
       return {
         ...user.toObject(),
-        totalSpent
+        totalSpent,
+        proxiesCount
       };
     }));
 
+    // Sort by totalSpent if requested (since we calculated it after DB query)
+    if (sortBy === 'totalSpent') {
+      usersWithSpending.sort((a, b) => {
+        if (sortOrder === 'desc') {
+          return b.totalSpent - a.totalSpent;
+        } else {
+          return a.totalSpent - b.totalSpent;
+        }
+      });
+    }
+
     return res.status(200).json({
       success: true,
-      users: usersWithSpending
+      users: usersWithSpending,
+      pagination: {
+        currentPage: pageNumber,
+        totalPages: Math.ceil(total / limitNumber),
+        total: total,
+        pages: Math.ceil(total / limitNumber),
+        limit: limitNumber,
+        hasNextPage: pageNumber < Math.ceil(total / limitNumber),
+        hasPrevPage: pageNumber > 1
+      }
     });
   } catch (error) {
-    console.error("Error searching users:", error);
+    console.error("Error fetching users:", error);
     return res.status(500).json({
       success: false,
-      message: "Error searching users"
+      message: "Error fetching users"
     });
   }
 });
+
+
 
 
 router.delete("/users/:userId", async (req, res) => {
