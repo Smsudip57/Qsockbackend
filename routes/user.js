@@ -3,6 +3,7 @@ const User = require("../models/user");
 const Plan = require("../models/plans");
 const History = require("../models/proxyhistory");
 const Coupon = require("../models/coupons");
+const Transactions = require("../models/transactions");
 const router = express.Router();
 const axios = require("axios");
 const EmailService = require("../services/emailService");
@@ -193,30 +194,11 @@ router.post("/generate", async (req, res) => {
             // const proxyWorks = await testProxyConnection(proxyarr[0], port);
             const proxyWorks = true
             if (proxyWorks) {
-              // Save each generated proxy to database
-              const userfromdb = await User.findById(user._id);
-              const historyEntries = [];
-              const savePromises = proxyarr.map(async (proxy) => {
-                const historyEntry = new History({
-                  user: userfromdb._id,
-                  type: "Premium Residential Proxies",
-                  plan: {
-                    id: `${rotation === "random" ? "Random Session" : "Sticky Session"} - ${port === "socks5" ? "Socks5" : "Http/s"}`,
-                  },
-                  order_id: `premium_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                  proxy: proxy,
-                });
-                const savedEntry = await historyEntry.save();
-                historyEntries.push(savedEntry);
-              });
-              await Promise.all(savePromises);
-
               res.end(JSON.stringify({
                 success: true,
                 message: "Residential proxies generated successfully",
                 proxies: proxyarr,
-                status: "success",
-                historyEntries: historyEntries.map((entry) => entry.toObject())
+                status: "success"
               }));
             } else {
               res.end(JSON.stringify({
@@ -317,30 +299,11 @@ router.post("/generate_budget", async (req, res) => {
             // console.log("Budget proxy working:", proxyWorks);
             const proxyWorks = true
             if (proxyWorks) {
-              // Save each generated proxy to database
-              const userfromdb = await User.findById(user._id);
-              const historyEntries = [];
-              const savePromises = proxyarr.map(async (proxy) => {
-                const historyEntry = new History({
-                  user: userfromdb._id,
-                  type: "Budget Residential Proxies",
-                  plan: {
-                    id: `${rotation === "random" ? "Random Session" : `${lifetime || 15} min Sticky Session`} - ${port === "socks5" ? "Socks5" : "Http/s"}`,
-                  },
-                  order_id: `budget_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                  proxy: proxy,
-                });
-                const savedEntry = await historyEntry.save();
-                historyEntries.push(savedEntry);
-              });
-              await Promise.all(savePromises);
-
               return res.status(200).json({
                 success: true,
                 message: "Residential proxies generated successfully",
                 proxies: proxyarr,
-                status: "success",
-                historyEntries: historyEntries.map((entry) => entry.toObject())
+                status: "success"
               });
             } else {
               return res.status(400).json({
@@ -648,6 +611,17 @@ router.post("/get_proxy", async (req, res) => {
             proxy: proxyarr,
           });
           await historyEntry.save();
+          // Create transaction record for LTE Mobile Proxies
+          try {
+            await Transactions.create({
+              user: userfromdb._id,
+              OrderID: response?.data?.order_id || `PUR${Date.now()}`,
+              Amount: finalPrice,
+              method: `${type} - ${quantity || 1} Proxy ${couponUsed ? ` (Coupon: ${couponUsed.code})` : ''}`,
+            });
+          } catch (txError) {
+            console.error("Error creating transaction record:", txError);
+          }
           return res.status(200).json({
             success: true,
             message: "Proxy generated successfully",
@@ -901,6 +875,17 @@ router.post("/get_proxy", async (req, res) => {
               historyEntries.push(savedEntry);
             });
             await Promise.all(savePromises);
+            // Create transaction record for Static Residential Proxies
+            try {
+              await Transactions.create({
+                user: userfromdb._id,
+                OrderID: response?.data?.id || `PUR${Date.now()}`,
+                Amount: finalPrice,
+                method: `${type} - ${quantity} Proxy ${couponUsed ? ` (Coupon: ${couponUsed.code})` : ''}`,
+              });
+            } catch (txError) {
+              console.error("Error creating transaction record:", txError);
+            }
             return res.status(200).json({
               success: true,
               message: "Proxies generated successfully",
@@ -1153,13 +1138,13 @@ router.post("/get_plan", async (req, res) => {
             await couponUsed.save();
           }
 
-          userfromdb.save();
+
 
           // Send purchase confirmation email
           try {
             await EmailService.sendPurchaseConfirmation(user.email, {
               planType: type,
-              planName: plan.name || `${amount}GB Traffic`,
+              planName: plan.name || `${amount} GB Traffic`,
               amount: parseFloat(finalPrice),
               originalAmount: parseFloat(plan.price),
               discount: parseFloat(discount),
@@ -1172,9 +1157,20 @@ router.post("/get_plan", async (req, res) => {
             console.log(`Purchase confirmation email sent to ${user.email}`);
           } catch (emailError) {
             console.error("Error sending purchase confirmation email:", emailError);
-            // Don't fail the transaction if email fails
           }
 
+          // Create transaction record
+          try {
+            await Transactions.create({
+              user: userfromdb._id,
+              OrderID: `PUR${Date.now()}`,
+              Amount: finalPrice.toFixed(2),
+              method: `${type} - ${amount} GB Traffic ${couponUsed ? ` (Coupon: ${couponUsed.code})` : ''}`,
+            });
+          } catch (txError) {
+            console.error("Error creating transaction record:", txError);
+          }
+          userfromdb.save();
           return res.status(200).json({
             success: true,
             message: "Plan purchased successfully",
@@ -1227,7 +1223,6 @@ router.post("/get_plan", async (req, res) => {
         userfromdb.balance = Number(
           (userfromdb.balance - plan.price).toFixed(2)
         );
-        userfromdb.save();
 
         // Send purchase confirmation email
         try {
@@ -1251,6 +1246,18 @@ router.post("/get_plan", async (req, res) => {
           // Don't fail the transaction if email fails
         }
 
+        // Create transaction record
+        try {
+          await Transactions.create({
+            user: userfromdb._id,
+            OrderID: `PUR${Date.now()}`,
+            Amount: plan.price,
+            method: `${type} - ${amount} GB Traffic ${couponUsed ? ` (Coupon: ${couponUsed.code})` : ''}`,
+          });
+        } catch (txError) {
+        }
+
+        userfromdb.save();
         return res.status(200).json({
           success: true,
           message: "Plan purchased successfully",

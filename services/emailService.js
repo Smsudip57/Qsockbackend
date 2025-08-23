@@ -9,7 +9,7 @@ const transporter = nodemailer.createTransport({
     user: "noreply@qsocks.net",
     pass: "xY8Hvai4uMjjA2s",
   },
-  connectionTimeout: 10000, 
+  connectionTimeout: 10000,
   greetingTimeout: 10000
 });
 
@@ -121,7 +121,7 @@ const getBaseTemplate = (title, content) => `
 <body>
   <div class="container">
     <div class="header">
-      <img src="${process.env.Client_Url}/logo.png" alt="QSocks Logo" class="logo" />
+      <img src="${process.env.Current_Url}/logo.png" alt="QSocks Logo" class="logo" />
       <h2>${title}</h2>
     </div>
     
@@ -166,13 +166,13 @@ const emailTemplates = {
         </div>
         <div class="detail-row">
           <span class="detail-label">Date:</span>
-          <span class="detail-value">${new Date().toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          })}</span>
+          <span class="detail-value">${new Date().toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })}</span>
         </div>
         <div class="detail-row">
           <span class="detail-label">New Balance:</span>
@@ -221,13 +221,13 @@ const emailTemplates = {
         </div>
         <div class="detail-row">
           <span class="detail-label">Date:</span>
-          <span class="detail-value">${new Date().toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          })}</span>
+          <span class="detail-value">${new Date().toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })}</span>
         </div>
         <div class="detail-row">
           <span class="detail-label">Remaining Balance:</span>
@@ -317,13 +317,13 @@ const emailTemplates = {
         </div>
         <div class="detail-row">
           <span class="detail-label">Date:</span>
-          <span class="detail-value">${new Date().toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          })}</span>
+          <span class="detail-value">${new Date().toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })}</span>
         </div>
         ${data.note ? `
         <div class="detail-row">
