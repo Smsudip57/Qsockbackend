@@ -65,6 +65,9 @@ router.post("/payment", userAuth, async (req, res) => {
       .status(200)
       .json({ success: true, url: response?.data?.result?.url });
   } catch (error) {
+    if(error?.response?.data){
+      return res.status(500).json({ success: false, message: error?.response?.data?.message });
+    }
     return res
       .status(500)
       .json({ success: false, message: "Something went wrong" });

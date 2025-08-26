@@ -107,7 +107,7 @@ router.get("/residential_location", async (req, res) => {
   try {
     const user = req?.user;
     const locations = await axios.get(
-      "https://api.digiproxy.cc/reseller/products/presidential/countries",
+      "https://api.digiproxy.cc/reseller/products/npresidential/countries",
       {
         headers: {
           Authorization: `Bearer ${process.env.Key}`,
@@ -159,14 +159,17 @@ router.post("/generate", async (req, res) => {
   try {
     const user = req?.user;
     if (user?.ResidentialCredentials?.availableTraffic > 0) {
-      const { country, state, city, quantity, rotation, port } = req.body;
-      const location = `${country}_${state || ""}_${city || ""}`;
+      const { country, state, city, quantity, rotation, port, highEnd, forceRandom } = req.body;
       try {
         const response = await axios.post(
-          "https://api.digiproxy.cc/reseller/products/presidential/generate",
+          "https://api.digiproxy.cc/reseller/products/npresidential/generate",
           {
+            country: country,
+            state: state,
+            city: city,
+            high_end: highEnd,
+            force_random: forceRandom,
             port: port,
-            location: location,
             count: quantity,
             rotation: rotation,
             subuser: user?.ResidentialCredentials?.id,
@@ -179,7 +182,7 @@ router.post("/generate", async (req, res) => {
           }
         );
         if (!response?.data?.error) {
-          const proxyarr = response?.data?.proxies?.map((item) => {
+          const proxyarr = response?.data?.map((item) => {
             if (typeof item === "string") {
               const parts = item.split(":");
               return [`premium.qsocks.net`, parts[1], parts[2], parts[3]].join(
@@ -226,6 +229,7 @@ router.post("/generate", async (req, res) => {
           });
         }
       } catch (error) {
+        console.log(error);
         return res.status(400).json({
           success: false,
           message: "Error! Please try again",
@@ -1058,12 +1062,12 @@ router.post("/get_plan", async (req, res) => {
         : user?.BudgetResidentialCredentials?.id;
     const url =
       type === "Premium Residential Proxies"
-        ? "https://api.digiproxy.cc/reseller/presidential/sub-users/create"
+        ? "https://api.digiproxy.cc/reseller/npresidential/sub-users/create"
         : "https://api.digiproxy.cc/reseller/budget-residential/sub-users/create";
 
     const trafficUrl = (id) => {
       return type === "Premium Residential Proxies"
-        ? `https://api.digiproxy.cc/reseller/presidential/sub-users/${id}/traffic/give`
+        ? `https://api.digiproxy.cc/reseller/npresidential/sub-users/${id}/traffic/give`
         : `https://api.digiproxy.cc/reseller/budget-residential/sub-users/${id}/traffic/give`;
     };
 
@@ -1074,6 +1078,7 @@ router.post("/get_plan", async (req, res) => {
         url,
         {
           email: user.email,
+          amount: type === "Premium Residential Proxies" ? amount : 1,
         },
         {
           headers: {
@@ -1093,12 +1098,12 @@ router.post("/get_plan", async (req, res) => {
       } else {
         userfromdb.BudgetResidentialCredentials = response?.data;
       }
-      if (amount > 0) {
+      if (amount > 1 && type !== "Premium Residential Proxies") {
         //give more traffic
         const giveTraffic = await axios.post(
           trafficUrl(response?.data?.id),
           {
-            amount: amount,
+            amount: parseFloat(amount) - 1
           },
           {
             headers: {
@@ -1178,29 +1183,150 @@ router.post("/get_plan", async (req, res) => {
           });
         }
       } else {
-        userfromdb.balance = Number(
-          (userfromdb.balance - plan.price).toFixed(2)
-        );
-        userfromdb.save();
+        userfromdb.balance = Number((userfromdb.balance - finalPrice).toFixed(2));
+
+        // Increment coupon usage if coupon was used
+        if (couponUsed) {
+          couponUsed.usageCount += 1;
+          await couponUsed.save();
+        }
+
+        // Send purchase confirmation email
+        try {
+          await EmailService.sendPurchaseConfirmation(user.email, {
+            planType: type,
+            planName: plan.name || `${amount} GB Traffic`,
+            amount: parseFloat(finalPrice),
+            originalAmount: parseFloat(plan.price),
+            discount: parseFloat(discount),
+            couponCode: couponUsed ? couponUsed.code : null,
+            oldBalance: parseFloat(user.balance),
+            newBalance: parseFloat(userfromdb.balance),
+            purchaseDate: new Date().toISOString(),
+            trafficAmount: amount
+          });
+        } catch (emailError) {
+          console.error("Error sending purchase confirmation email:", emailError);
+        }
+
+        // Create transaction record
+        try {
+          await Transactions.create({
+            user: userfromdb._id,
+            OrderID: `PUR${Date.now()}`,
+            Amount: finalPrice.toFixed(2),
+            method: `${type} - ${amount} GB Traffic ${couponUsed ? ` (Coupon: ${couponUsed.code})` : ''}`,
+          });
+        } catch (txError) {
+          console.error("Error creating transaction record:", txError);
+        }
+
+        await userfromdb.save();
         return res.status(200).json({
           success: true,
           message: "Plan purchased successfully",
           user: userfromdb,
         });
       }
+
+
+
+
     } else {
-      const giveTraffic = await axios.post(
-        trafficUrl(credentials),
-        {
-          amount: amount,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.Key}`,
-            "Content-Type": "application/json",
+
+      const createPremiumUser = async () => {
+        const response = await axios.post(
+          "https://api.digiproxy.cc/reseller/npresidential/sub-users/create",
+          {
+            email: user.email,
+            amount: amount,
           },
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.Key}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        if (response?.data?.error) {
+          return res.status(400).json({
+            success: false,
+            message: "Something went wrong",
+          });
         }
-      );
+
+        userfromdb.ResidentialCredentials = response?.data;
+        userfromdb.balance = Number((userfromdb.balance - finalPrice).toFixed(2));
+
+        // Increment coupon usage if coupon was used
+        if (couponUsed) {
+          couponUsed.usageCount += 1;
+          await couponUsed.save();
+        }
+
+        // Send purchase confirmation email
+        try {
+          await EmailService.sendPurchaseConfirmation(user.email, {
+            planType: type,
+            planName: plan.name || `${amount} GB Traffic`,
+            amount: parseFloat(finalPrice),
+            originalAmount: parseFloat(plan.price),
+            discount: parseFloat(discount),
+            couponCode: couponUsed ? couponUsed.code : null,
+            oldBalance: parseFloat(user.balance),
+            newBalance: parseFloat(userfromdb.balance),
+            purchaseDate: new Date().toISOString(),
+            trafficAmount: amount
+          });
+        } catch (emailError) {
+          console.error("Error sending purchase confirmation email:", emailError);
+        }
+
+        // Create transaction record
+        try {
+          await Transactions.create({
+            user: userfromdb._id,
+            OrderID: `PUR${Date.now()}`,
+            Amount: finalPrice.toFixed(2),
+            method: `${type} - ${amount} GB Traffic ${couponUsed ? ` (Coupon: ${couponUsed.code})` : ''}`,
+          });
+        } catch (txError) {
+          console.error("Error creating transaction record:", txError);
+        }
+
+        await userfromdb.save();
+        return res.status(200).json({
+          success: true,
+          message: "Plan purchased successfully",
+          user: userfromdb,
+        });
+      }
+      let giveTraffic;
+      try {
+        giveTraffic = await axios.post(
+          trafficUrl(credentials),
+          {
+            amount: amount,
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.Key}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        if (giveTraffic?.data?.message === "Invalid sub-user id." && type === "Premium Residential Proxies" && giveTraffic?.data?.error) {
+          await createPremiumUser();
+          return;
+        }
+      } catch (error) {
+        if (error?.response?.data?.detail === "Not Found" && type === "Premium Residential Proxies") {
+          await createPremiumUser();
+          return;
+        }
+      }
       if (!giveTraffic?.data || giveTraffic?.data?.error) {
         return res.status(400).json({
           success: false,
@@ -1220,30 +1346,30 @@ router.post("/get_plan", async (req, res) => {
               userfromdb.BudgetResidentialCredentials.availableTraffic + amount,
           };
         }
-        userfromdb.balance = Number(
-          (userfromdb.balance - plan.price).toFixed(2)
-        );
+        userfromdb.balance = Number((userfromdb.balance - finalPrice).toFixed(2));
+
+        // Increment coupon usage if coupon was used
+        if (couponUsed) {
+          couponUsed.usageCount += 1;
+          await couponUsed.save();
+        }
 
         // Send purchase confirmation email
         try {
           await EmailService.sendPurchaseConfirmation(userfromdb.email, {
-            planName: plan.name,
-            planType: plan.type,
-            amount: plan.price,
-            currency: 'USD',
+            planType: type,
+            planName: plan.name || `${amount} GB Traffic`,
+            amount: parseFloat(finalPrice),
+            originalAmount: parseFloat(plan.price),
+            discount: parseFloat(discount),
+            couponCode: couponUsed ? couponUsed.code : null,
+            oldBalance: parseFloat(user.balance),
+            newBalance: parseFloat(userfromdb.balance),
             purchaseDate: new Date().toISOString(),
-            orderId: `PUR${Date.now()}`,
-            oldBalance: Number((userfromdb.balance + plan.price).toFixed(2)),
-            newBalance: userfromdb.balance,
-            planDetails: {
-              duration: plan.id,
-              traffic: amount + 'GB'
-            }
+            trafficAmount: amount
           });
-          console.log(`Purchase confirmation email sent to ${userfromdb.email}`);
         } catch (emailError) {
           console.error("Error sending purchase confirmation email:", emailError);
-          // Don't fail the transaction if email fails
         }
 
         // Create transaction record
@@ -1251,13 +1377,14 @@ router.post("/get_plan", async (req, res) => {
           await Transactions.create({
             user: userfromdb._id,
             OrderID: `PUR${Date.now()}`,
-            Amount: plan.price,
+            Amount: finalPrice.toFixed(2),
             method: `${type} - ${amount} GB Traffic ${couponUsed ? ` (Coupon: ${couponUsed.code})` : ''}`,
           });
         } catch (txError) {
+          console.error("Error creating transaction record:", txError);
         }
 
-        userfromdb.save();
+        await userfromdb.save();
         return res.status(200).json({
           success: true,
           message: "Plan purchased successfully",
@@ -1302,7 +1429,7 @@ router.get("/get_starts", async (req, res) => {
           };
         }
       } catch (error) {
-        console.log(error?.response?.data);
+        // Silently handle budget residential stats error
       }
 
     }
@@ -1310,7 +1437,7 @@ router.get("/get_starts", async (req, res) => {
     if (user?.ResidentialCredentials?.id) {
       try {
         const request = await axios.get(
-          `https://api.digiproxy.cc/reseller/residential/sub-users/${user?.ResidentialCredentials?.id}`,
+          `https://api.digiproxy.cc/reseller/npresidential/sub-users/${user?.ResidentialCredentials?.id}`,
           {
             headers: {
               Authorization: `Bearer ${process.env.Key}`,
@@ -1330,7 +1457,7 @@ router.get("/get_starts", async (req, res) => {
           };
         }
       } catch (error) {
-        console.log(error?.response?.data);
+        // Silently handle premium residential stats error
       }
     }
     userfromdb.save();
@@ -1340,7 +1467,6 @@ router.get("/get_starts", async (req, res) => {
       premiumStat,
     });
   } catch (error) {
-    console.log(error?.message);
     return res.status(500).json({
       success: false,
       message: "Something went wrong",
