@@ -1489,7 +1489,7 @@ router.post("/users/:userId/add-balance", async (req, res) => {
     let msg
     let transaction = null;
     const oldBalance = user.balance;
-    
+
     if (note.includes("add")) {
       user.balance += parseFloat(amount);
       msg = `$${amount} added to user balance successfully`
@@ -1814,11 +1814,22 @@ router.get("/sales-dashboard", async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    // OPTIMIZATION 2: Run parallel queries for stats data
+    // OPTIMIZATION 2: Run parallel queries for stats data (excluding plan purchases)
     const [todayStats, yesterdayStats, monthStats, lastMonthStats, paymentMethodStats] = await Promise.all([
       // Today's stats
       Transaction.aggregate([
-        { $match: { createdAt: { $gte: todayStart } } },
+        {
+          $match: {
+            createdAt: { $gte: todayStart },
+            // Filter out plan purchase transactions
+            method: {
+              $not: {
+                $regex: "(Premium Residential Proxies|Budget Residential Proxies|LTE Mobile Proxies|Static Residential Proxies)",
+                $options: "i"
+              }
+            }
+          }
+        },
         {
           $group: {
             _id: null,
@@ -1835,6 +1846,13 @@ router.get("/sales-dashboard", async (req, res) => {
             createdAt: {
               $gte: yesterdayStart,
               $lt: todayStart
+            },
+            // Filter out plan purchase transactions
+            method: {
+              $not: {
+                $regex: "(Premium Residential Proxies|Budget Residential Proxies|LTE Mobile Proxies|Static Residential Proxies)",
+                $options: "i"
+              }
             }
           }
         },
@@ -1849,7 +1867,18 @@ router.get("/sales-dashboard", async (req, res) => {
 
       // This month's stats
       Transaction.aggregate([
-        { $match: { createdAt: { $gte: monthStart } } },
+        {
+          $match: {
+            createdAt: { $gte: monthStart },
+            // Filter out plan purchase transactions
+            method: {
+              $not: {
+                $regex: "(Premium Residential Proxies|Budget Residential Proxies|LTE Mobile Proxies|Static Residential Proxies)",
+                $options: "i"
+              }
+            }
+          }
+        },
         {
           $group: {
             _id: null,
@@ -1866,6 +1895,13 @@ router.get("/sales-dashboard", async (req, res) => {
             createdAt: {
               $gte: lastMonthStart,
               $lte: lastMonthEnd
+            },
+            // Filter out plan purchase transactions
+            method: {
+              $not: {
+                $regex: "(Premium Residential Proxies|Budget Residential Proxies|LTE Mobile Proxies|Static Residential Proxies)",
+                $options: "i"
+              }
             }
           }
         },
@@ -1878,8 +1914,19 @@ router.get("/sales-dashboard", async (req, res) => {
         }
       ]),
 
-      // OPTIMIZATION 3: Get payment methods breakdown in one query
+      // OPTIMIZATION 3: Get payment methods breakdown in one query (excluding plan purchases)
       Transaction.aggregate([
+        {
+          $match: {
+            // Filter out plan purchase transactions
+            method: {
+              $not: {
+                $regex: "(Premium Residential Proxies|Budget Residential Proxies|LTE Mobile Proxies|Static Residential Proxies)",
+                $options: "i"
+              }
+            }
+          }
+        },
         {
           $group: {
             _id: { $ifNull: ["$method", "Other"] },
@@ -1910,8 +1957,19 @@ router.get("/sales-dashboard", async (req, res) => {
     const monthCount = monthStats[0]?.count || 0;
     const lastMonthSales = lastMonthStats[0]?.totalSales || 0;
 
-    // Get total stats (using another aggregation for accuracy)
+    // Get total stats (using another aggregation for accuracy, excluding plan purchases)
     const allTimeStats = await Transaction.aggregate([
+      {
+        $match: {
+          // Filter out plan purchase transactions
+          method: {
+            $not: {
+              $regex: "(Premium Residential Proxies|Budget Residential Proxies|LTE Mobile Proxies|Static Residential Proxies)",
+              $options: "i"
+            }
+          }
+        }
+      },
       {
         $group: {
           _id: null,
@@ -1995,9 +2053,20 @@ async function getDailySalesDataOptimized() {
     dailyData.push(0);
   }
 
-  // Single aggregate query to get daily sales totals
+  // Single aggregate query to get daily sales totals (excluding plan purchases)
   const dailySalesResults = await Transaction.aggregate([
-    { $match: { createdAt: { $gte: startDate, $lte: today } } },
+    {
+      $match: {
+        createdAt: { $gte: startDate, $lte: today },
+        // Filter out plan purchase transactions
+        method: {
+          $not: {
+            $regex: "(Premium Residential Proxies|Budget Residential Proxies|LTE Mobile Proxies|Static Residential Proxies)",
+            $options: "i"
+          }
+        }
+      }
+    },
     {
       $group: {
         _id: {
@@ -2049,9 +2118,20 @@ async function getMonthlySalesDataOptimized() {
     monthlyData.push(0);
   }
 
-  // Get monthly sales with a single aggregation query
+  // Get monthly sales with a single aggregation query (excluding plan purchases)
   const monthlySalesResults = await Transaction.aggregate([
-    { $match: { createdAt: { $gte: sixMonthsAgo } } },
+    {
+      $match: {
+        createdAt: { $gte: sixMonthsAgo },
+        // Filter out plan purchase transactions
+        method: {
+          $not: {
+            $regex: "(Premium Residential Proxies|Budget Residential Proxies|LTE Mobile Proxies|Static Residential Proxies)",
+            $options: "i"
+          }
+        }
+      }
+    },
     {
       $group: {
         _id: {
